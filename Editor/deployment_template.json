@@ -1,0 +1,61 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.ContainerInstance/containerGroups",
+            "apiVersion": "2021-03-01",
+            "name": "oss-game-demo",
+            "location": "germanywestcentral",
+            "tags": {
+                "type": "ONE-STOP-SHOP",
+                "kill-at": "2021-09-20 13:00"
+            },
+            "properties": {
+                "sku": "Standard",
+                "containers": [
+                    {
+                        "name": "oss-game-demo",
+                        "properties": {
+                            "image": "unordinal.azurecr.io/demo-game/oss-demo-game:experimental",
+                            "ports": [
+                                {
+                                    "protocol": "UDP",
+                                    "port": 7776
+                                }
+                            ],
+                            "environmentVariables": [],
+                            "resources": {
+                                "requests": {
+                                    "memoryInGB": 14,
+                                    "cpu": 4
+                                }
+                            }
+                        }
+                    }
+                ],
+                "initContainers": [],
+                "imageRegistryCredentials": [
+                    {
+                        "server": "unordinal.azurecr.io",
+                        "username": "unordinal"
+                    }
+                ],
+                "restartPolicy": "OnFailure",
+                "ipAddress": {
+                    "ports": [
+                        {
+                            "protocol": "UDP",
+                            "port": 7776
+                        }
+                    ],
+                    "type": "Public",
+                    "dnsNameLabel": "oss-demo-game"
+                },
+                "osType": "Linux"
+            }
+        }
+    ]
+}

@@ -1,0 +1,40 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.810.16
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformUnityPlugin", "PlatformUnityPlugin.csproj", "{2A3565A1-F6B4-45C9-A048-83F90E088CB9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformUnityPlugin.Tests", "PlatformUnityPlugin.Tests\PlatformUnityPlugin.Tests.csproj", "{36117095-3F88-4EFA-9A78-EAFC8852FC4D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{FEAD5B18-6867-4CCF-9E5C-0CF819109668}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2A3565A1-F6B4-45C9-A048-83F90E088CB9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A3565A1-F6B4-45C9-A048-83F90E088CB9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A3565A1-F6B4-45C9-A048-83F90E088CB9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A3565A1-F6B4-45C9-A048-83F90E088CB9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{36117095-3F88-4EFA-9A78-EAFC8852FC4D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{36117095-3F88-4EFA-9A78-EAFC8852FC4D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{36117095-3F88-4EFA-9A78-EAFC8852FC4D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{36117095-3F88-4EFA-9A78-EAFC8852FC4D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B2D3E2E2-2932-461F-A5FA-A0BAD2E04160}
+	EndGlobalSection
+	GlobalSection(MonoDevelopProperties) = preSolution
+		outputpath = ../unordinal/plugin-build
+		intermediateoutputpath = ../unordinal/plugin-build
+	EndGlobalSection
+EndGlobal

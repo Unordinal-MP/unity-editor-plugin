@@ -1,0 +1,41 @@
+{
+    "name": "Unordinal.Hosting.Editor",
+    "rootNamespace": "",
+    "references": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "ICSharpCode.SharpZipLib.dll",
+        "Microsoft.Bcl.AsyncInterfaces.dll",
+        "System.Buffers.dll",
+        "System.Diagnostics.DiagnosticSource.dll",
+        "System.Memory.Data.dll",
+        "System.Memory.dll",
+        "System.Text.Encodings.Web.dll",
+        "System.Text.Json.dll",
+        "System.Threading.Tasks.Extensions.dll",
+        "Unity.Container.dll",
+        "Unity.Microsoft.Logging.dll",
+        "Unity.Abstractions.dll",
+        "Microsoft.Extensions.Logging.dll",
+        "Microsoft.Extensions.Logging.Abstractions.dll",
+        "Microsoft.Extensions.DependencyInjection.Abstractions.dll",
+        "Microsoft.Extensions.Options.dll",
+        "Microsoft.Extensions.Primitives.dll",
+        "Microsoft.Extensions.Configuration.Abstractions.dll",
+        "Microsoft.Extensions.Logging.Configuration.dll",
+        "Microsoft.Extensions.Logging.Console.dll",
+        "Microsoft.Extensions.Options.ConfigurationExtensions.dll",
+        "Microsoft.Extensions.Configuration.dll",
+        "Microsoft.Extensions.Configuration.Binder.dll",
+        "Microsoft.Extensions.DependencyInjection.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

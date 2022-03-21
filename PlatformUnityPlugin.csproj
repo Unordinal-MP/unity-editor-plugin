@@ -13,12 +13,46 @@
   <Import Sdk="Microsoft.NET.Sdk" Project="Sdk.targets" />
   
   <ItemGroup>
-    <Folder Include="Editor\Precompiled\" />
-    <None Remove="**.meta" />
-    <None Remove="Editor\**.meta" />
-    <None Remove="Editor\**\**.meta" />
+    <None Include="*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\Precompiled\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\Networking\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\External\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\Services\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\Assets\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\UI\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\UI\Pages\*.meta">
+      <Visible>false</Visible>
+    </None>
+    <None Include="Editor\Utils\*.meta">
+      <Visible>false</Visible>
+    </None>
     <None Remove="PlatformUnityPlugin.Tests\**" />
     <None Remove="obj\**" />
+    <Folder Include="Editor\Precompiled\" />
+    <Folder Include="Editor\Networking\" />
+    <Folder Include="Editor\External\" />
+    <Folder Include="Editor\Services\" />
+    <Folder Include="Editor\Assets\" />
+    <Folder Include="Editor\UI\" />
+    <Folder Include="Editor\UI\Pages\" />
+    <Folder Include="Editor\Utils\" />
   </ItemGroup>
 
   <ItemGroup>

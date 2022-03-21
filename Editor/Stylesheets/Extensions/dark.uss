@@ -1,0 +1,18 @@
+/*Use this file to override specific values fo the dark theme*/
+
+/*Label {
+    color: var(--text-color);
+}
+
+:root {
+    --plugin-background-color: rgb(56, 56, 56);
+    --text-color: #fefefe;
+}
+
+.root-container {
+    background-color: var(--plugin-background-color);
+}
+
+.plugin-container {
+    background-color: var(--plugin-background-color);
+}*/

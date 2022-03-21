@@ -19,7 +19,6 @@
         "System.Text.Json.dll",
         "System.Threading.Tasks.Extensions.dll",
         "Unity.Container.dll",
-        "Unity.Microsoft.Logging.dll",
         "Unity.Abstractions.dll",
         "Microsoft.Extensions.Logging.dll",
         "Microsoft.Extensions.Logging.Abstractions.dll",

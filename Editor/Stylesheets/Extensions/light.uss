@@ -1,0 +1,5 @@
+/*Use this file to override specific values fo the light theme*/
+
+.unity-object-field-display__label {
+    color: black; /*The text is otherwise "invisible" in light theme*/
+}

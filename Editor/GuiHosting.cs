@@ -1,27 +1,29 @@
 ﻿using System.Threading.Tasks;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using System;
-using static Unordinal.Hosting.UnordinalApi;
+using static Unordinal.Editor.External.UnordinalApi;
+using static Unordinal.Editor.External.AnalyticsApi;
 using UnityEngine.UIElements;
-using UnityEditor.UIElements;
 using Microsoft.Extensions.Logging;
 using Unity;
 using System.Threading;
+using Unordinal.Editor.External;
+using Unordinal.Editor.Services;
+using Unordinal.Editor.UI;
+using Unordinal.Editor.Utils;
+using System.IO;
+using UnityEditor.Build;
 
-namespace Unordinal.Hosting
+namespace Unordinal.Editor
 {
-    public partial class GuiHosting : ConfigurableWindow<GuiHosting>
+    public partial class GuiHosting : ConfigurableWindow, IActiveBuildTargetChanged
     {
         #region Fields
 
         // Identifiers for dashboard
         private PluginData pluginData;
-
-        private const string VerificationCodeSubtitle =
-            "Ensure that the verification code matches the one in your browser.";
 
         // ProgressText is not visible in new GUI design,
         // kept since this might change in future.
@@ -29,921 +31,414 @@ namespace Unordinal.Hosting
         private string progressText = null;
 #pragma warning restore 0414
 
-        // Ports
-        private List<Port> ports = new List<Port>();
-        private int amountOfPorts = 1;
-
-        // Should sign in page be shown on plugin start.
-        // This will change to false, if token is valid,
-        // resulting in the start-page being shown instead.
-        private bool showSignIn = true; 
-
-        // Page variables.
-        private Dictionary<DeploymentPage, VisualElement> pages; // Contains all the available pages.
-        private DeploymentPage activePage = DeploymentPage.Start;
-        private DeploymentPage oldPage = DeploymentPage.Start;
-
-        // Visual elements that gets updated
-        private VisualElement firstRemoveButton;
-        private TextField resultMessage;
-        private TextField shortErrorMessage;
-        private ScrollView detailedErrorScrollView;
-        private TextField longErrorMessage;
-        private Label signInActiveSubtitle;
-        private Box progressForeground;
-        private Label percentLabel;
-        private Box errorProgressForeground;
-        private Label errorPercentLabel;
-
-        // Deployment variables
-        private float progress = 0.0f;
-
-        // Widths
-        private int progressBarWidth = 360;
-        private int bigButtonWidth = 280;
-        private int copyResultButtonWidth = 50;
-
         // variables to handle auth process
-        private Label verificationCodeLabel;
-        private string deviceCode = null;
-
-        // Enabling this will show debug buttons,
-        // these buttons can then be used to 
-        // toggle between different pages.
-        private bool addDebugButtons = false;
+        private string deviceCode;
 
         // Cancellation token sources.
-        private CancellationTokenSource loginFlow = new CancellationTokenSource();
-        private CancellationTokenSource deploymentFlow = new CancellationTokenSource();
+        private CancellationTokenSource loginFlow;
+        private CancellationTokenSource deploymentFlow;
 
         private ITokenStorage tokenStorage;
         private IUserInfoHolder userInfoHolder;
+        private PluginDataFactory pluginDataFactory;
         private Auth0Client auth0Client;
         private RefreshTokenHttpMessageHandler refreshHandler;
         private UnordinalApi unordinalApi;
+        private AnalyticsApi analyticsApi;
         private ServerBundler bundler;
-        private TarGzArchiver archiver;
+        private ClientBundler clientBundler;
+        private Archiver archiver;
         private FileUploader fileUploader;
         private ILogger<GuiHosting> logger;
-        private RegionalDeploymentService regionalDeploymentService;
+        private AzureRegionPinger regionalDeploymentService;
+        private PortFinder portFinder;
+        private bool addDebugButtons = false;
+
+        // Deployment
+        private DeploymentStep activeStep;
+        bool nonAwaitedTaskFailed;
+        string failMessage = string.Empty;
+        BuildTargetGroup originalGroup;
+        BuildTarget originalTarget;
+        string serverOutputPath = null;
+        string clientOutputPath = null;
+        Guid deploymentGuid = Guid.Empty;
+
+        // Analytics
+        string userID => userInfoHolder?.UserInfo.sub;
 
         #endregion
 
         #region Initialization
 
-        [MenuItem("Tools/Hosting")]
-        public new static GuiHosting Initialize()
-        {
-            var result = ConfigurableWindow<GuiHosting>.Initialize();
-            result.minSize = new Vector2(445, 50);
-            result.titleContent = new GUIContent("Unordinal Hosting");
-            return result;
-        }
-
         [InjectionMethod]
         public void Initialize(
             ITokenStorage tokenStorage,
             IUserInfoHolder userInfoHolder,
+            PluginDataFactory pluginDataFactory,
             Auth0Client auth0Client,
             RefreshTokenHttpMessageHandler refreshHandler,
             UnordinalApi unordinalApi,
+            AnalyticsApi analyticsApi,
             ServerBundler bundler,
-            TarGzArchiver archiver,
+            ClientBundler clientBundler,
+            Archiver archiver,
             FileUploader fileUploader,
             ILogger<GuiHosting> logger,
-            RegionalDeploymentService regionalDeploymentService)
+            AzureRegionPinger regionalDeploymentService,
+            PortFinder portFinder)
         {
             logger.LogDebug("Inside injection method");
             this.tokenStorage = tokenStorage;
             this.userInfoHolder = userInfoHolder;
+            this.pluginDataFactory = pluginDataFactory;
             this.auth0Client = auth0Client;
             this.refreshHandler = refreshHandler;
             this.unordinalApi = unordinalApi;
+            this.analyticsApi = analyticsApi;
             this.bundler = bundler;
+            this.clientBundler = clientBundler;
             this.archiver = archiver;
             this.fileUploader = fileUploader;
             this.logger = logger;
             this.regionalDeploymentService = regionalDeploymentService;
+            this.portFinder = portFinder;
         }
 
-        #endregion
-
-        protected override void AfterEnabled()
+        protected override void DoCreateGUI()
         {
-            pluginData = PluginData.LoadPluginData();
-            EvaluateSignIn();
-            LoadPorts();
-            GenerateGUI();
-        }
-
-        private void GenerateGUI()
-        {
-            var pluginStyleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>("Packages/com.unordinal.hosting/Editor Default Resources/GuiHosting.uss");
-            rootVisualElement.styleSheets.Add(pluginStyleSheet);
+            var commonStyleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>("Packages/com.unordinal.hosting/Editor/Stylesheets/Extensions/common.uss");
 
             // Each editor window contains a root VisualElement object
-            VisualElement root = rootVisualElement;
-            root.AddToClassList("root-container");
+            rootVisualElement.styleSheets.Add(commonStyleSheet);
+
+            if (EditorGUIUtility.isProSkin)
+            {
+                // Add dark theme on top of common.
+                var darkStyleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>("Packages/com.unordinal.hosting/Editor/Stylesheets/Extensions/dark.uss");
+                rootVisualElement.styleSheets.Add(darkStyleSheet);
+            }
+            else
+            {
+                // Add light theme on top of common.
+                var lightStyleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>("Packages/com.unordinal.hosting/Editor/Stylesheets/Extensions/light.uss");
+                rootVisualElement.styleSheets.Add(lightStyleSheet);
+            }
+
+            rootVisualElement.AddToClassList("root-container");
+            rootVisualElement.style.minHeight = minSize.y;
 
             var scrollView = new ScrollView();
+            scrollView.style.minHeight = minSize.y;
+            rootVisualElement.Add(scrollView);
 
-            var pluginContainer = new VisualElement();
-            pluginContainer.AddToClassList("plugin-container");
-            pluginContainer.style.minHeight = 550;
+            var pageContainer = CreatePageContainer();
+            scrollView.Add(pageContainer);
 
-            root.Add(scrollView);
-            scrollView.Add(pluginContainer);
+            var signInPage = CreateSignInPage();
+            AddPage(DeploymentPages.SignIn, signInPage);
 
-            // Containers, each one holds a different page "step" in the deployment.
-            var signInPage = new VisualElement();
-            var signInActivePage = new VisualElement();
-            var signInSuccessPage = new VisualElement();
-            var startPage = new VisualElement();
-            var deployingPage = new VisualElement();
-            var deployFinishedPage = new VisualElement();
-            var deployingErrorPage = new VisualElement();
+            var signInActivePage = CreateSignInActivePage();
+            AddPage(DeploymentPages.SignInActive, signInActivePage);
 
-            // Add class to make each one of them center in window.
-            signInPage.AddToClassList("plugin-container");
-            signInActivePage.AddToClassList("plugin-container");
-            signInSuccessPage.AddToClassList("plugin-container");
-            startPage.AddToClassList("plugin-container");
-            deployingPage.AddToClassList("plugin-container");
-            deployFinishedPage.AddToClassList("plugin-container");
-            deployingErrorPage.AddToClassList("plugin-container");
+            var signInSuccessPage = CreateSignInSuccessfulPage();
+            AddPage(DeploymentPages.SignInSuccess, signInSuccessPage);
 
-            // Generate the different pages.
-            CreateSignIn(signInPage);
-            CreateSignInActive(signInActivePage);
-            CreateSignInSucessfull(signInSuccessPage);
-            CreateStart(startPage);
-            CreateDeploying(deployingPage);
-            CreateDeployFinished(deployFinishedPage);
-            CreateDeployingError(deployingErrorPage);
+            var linuxBuildSupportPage = CreateAddLinuxPage();
+            AddPage(DeploymentPages.LinuxBuildSupportRequired, linuxBuildSupportPage);
 
-            // Add pages to dictionary
-            pages = new Dictionary<DeploymentPage, VisualElement>();
-            pages.Add(DeploymentPage.SignIn, signInPage);
-            pages.Add(DeploymentPage.SignInActive, signInActivePage);
-            pages.Add(DeploymentPage.SignInSucess, signInSuccessPage);
-            pages.Add(DeploymentPage.Start, startPage);
-            pages.Add(DeploymentPage.Deploying, deployingPage);
-            pages.Add(DeploymentPage.Finished, deployFinishedPage);
-            pages.Add(DeploymentPage.Error, deployingErrorPage);
+            var restartRequiredPage = CreateRestartunityRequired();
+            AddPage(DeploymentPages.RestartUnityRequired, restartRequiredPage);
 
-            // Add them to hierarchy so they can be shown.
-            pluginContainer.Add(signInPage);
-            pluginContainer.Add(signInActivePage);
-            pluginContainer.Add(signInSuccessPage);
-            pluginContainer.Add(startPage);
-            pluginContainer.Add(deployingPage);
-            pluginContainer.Add(deployFinishedPage);
-            pluginContainer.Add(deployingErrorPage);
+            var startPage = CreateStartPage();
+            PortsChanged += OnPortsChanged;
+            AddPage(DeploymentPages.Start, startPage);
 
-            // Store visual elements that will change.
-            signInActiveSubtitle = pages[DeploymentPage.SignInActive].Q<Label>("subtitle");
-            progressForeground = pages[DeploymentPage.Deploying].Q<Box>("progress");
-            percentLabel = pages[DeploymentPage.Deploying].Q<Label>("percent-label");
-            errorProgressForeground = pages[DeploymentPage.Error].Q<Box>("progress-error");
-            errorPercentLabel = pages[DeploymentPage.Error].Q<Label>("percent-error-label");
+            var waitPage = CreateWaitPage();
+            AddPage(DeploymentPages.Wait, waitPage);
 
-            HideAllPages(); // Hide all pages, the active one will turn visible in OnGUI
+            var deployingPage = CreateDeployingPage();
+            AddPage(DeploymentPages.Deploying, deployingPage);
 
-            if (showSignIn)
-            {
-                activePage = DeploymentPage.SignIn;
-            }
+            var deployFinishedPage = CreateDeployFinishedPage();
+            AddPage(DeploymentPages.Finished, deployFinishedPage);
 
-            ShowPage(activePage);
+            var deployingErrorPage = CreateDeployingErrorPage();
+            AddPage(DeploymentPages.Error, deployingErrorPage);
 
+            ShowPage(ActivePage);
+
+#if DEBUG
             if (addDebugButtons)
             {
-                AddDebugButtons(root);
-            }
-
-            showSignIn = false;
-        }
-
-        private void OnGUI()
-        {
-            if (activePage != oldPage)
-            {
-                // Change page.
-
-                HideAllPages();
-                ShowPage(activePage);
-                oldPage = activePage;
-            }
-            
-            switch (activePage)
-            {
-                case DeploymentPage.Deploying:
-                    UpdateProgressBar(progressForeground, percentLabel);
-                    break;
-                case DeploymentPage.Error:
-                    UpdateProgressBar(errorProgressForeground, errorPercentLabel);
-                    break;
-                default:
-                    // Empty
-                    break;
-            }
-        }
-
-        #region Page creation
-
-        void CreateSignIn(VisualElement parent)
-        {
-            CreateTop(parent,
-                "This is where it all starts!",
-                "Clicking the button below will open Unordinal's sign in page in your browser. Once signed in, hosting a server and sharing it will be a piece of cake."
-                );
-
-            // Sign in button
-            Button signInButton = CreateBigButton("Log in to Unordinal");
-            signInButton.clicked += (() => 
-            {
-                signInActiveSubtitle.text = "A sign in page has been opened in your browser." + VerificationCodeSubtitle;
-                OnSignIn(true); 
-            });
-
-            // Copy sign in url
-            Button copySignInURLButton = new Button();
-            copySignInURLButton.AddToClassList("only-text-button");
-            copySignInURLButton.text = "Copy sign in URL to open in other browser";
-            copySignInURLButton.clicked += (() => 
-            {
-                signInActiveSubtitle.text = "A sign in URL has been copied to your clipboard. Paste it in a browser and complete the sign in." + VerificationCodeSubtitle;
-                OnSignIn(false); 
-            });
-
-            // Layout
-            {
-                parent.Add(signInButton);
-                parent.Add(copySignInURLButton);
-            }
-        }
-
-        void CreateSignInActive(VisualElement parent)
-        {
-            CreateTop(parent,
-                "Get login token",
-                VerificationCodeSubtitle
-                );
-
-            // Verification code
-            verificationCodeLabel = new Label("232-F2F");
-            verificationCodeLabel.AddToClassList("verification-code-label");
-
-            Button cancelButton = new Button();
-            cancelButton.AddToClassList("only-text-button");
-            cancelButton.text = "Cancel sign in";
-            cancelButton.clicked += OnCancelSignIn;
-
-            // Layout
-            {
-                parent.Add(verificationCodeLabel);
-                parent.Add(cancelButton);
-            }
-        }
-
-        void CreateSignInSucessfull(VisualElement parent)
-        {
-            CreateTop(parent,
-                "Get login token",
-                "A sign in page has been opened in your browser. Ensure that the verification code matches the one in your browser.");
-
-            Texture2D successTexture = (Texture2D)AssetDatabase.LoadAssetAtPath("Packages/com.unordinal.hosting/Editor/SignInSuccessful.png", typeof(Texture2D));
-            var successImage = new Image() { image = successTexture };
-            successImage.AddToClassList("success-image");
-
-            Label successLabel = new Label("LOGIN SUCCESSFUL");
-
-            // Layout
-            {
-                parent.Add(successImage);
-                parent.Add(successLabel);
-            }
-        }
-
-        void CreateStart(VisualElement parent)
-        {
-            CreateTop(parent,
-                "This is where it all starts!",
-                "Your game is specified to run on a specific port, make sure to add the same port below."
-                );
-
-            var settingsContainer = new VisualElement();
-            foreach (var port in ports)
-            {
-                CreateProcessSettings(settingsContainer, port);
-            }
-
-            // Process button
-            Button deployButton = CreateBigButton("Deploy now");
-            deployButton.clicked += OnDeploy;
-            deployButton.style.marginTop = 40;
-
-            // Dashboard button
-            Button dashBoardButton = CreateBigButtonWithoutBackground("Go to dashboard");
-            dashBoardButton.clicked += OnDashboard;
-
-            // Layout
-            {
-                parent.Add(settingsContainer);
-                parent.Add(deployButton);
-                parent.Add(dashBoardButton);
-            }
-        }
-
-        void CreateDeploying(VisualElement parent)
-        {
-
-            CreateTop(parent,
-                "Deploying game to server",
-                "Server is now being built and uploaded to Unordinal's servers.\n" +
-                "Sit back and relax, this might take a couple of minutes depending on your server size."
-                );
-
-            CreateProgressBar(parent, "Vacuuming X-Wings");
-
-            var cancelBtn = new Button();
-            cancelBtn.text = "Cancel deploying";
-            cancelBtn.RegisterCallback<MouseUpEvent>(evt => OnCancelDeploy());
-            cancelBtn.AddToClassList("only-text-button");
-
-            // Layout
-            {
-                parent.Add(cancelBtn);
-            }
-            
-        }
-
-        void CreateDeployingError(VisualElement parent)
-        {
-            CreateTop(parent,
-                "Deploying game to server",
-                "Something went wrong, see below for details.");
-
-            CreateProgressBar(parent, "Error occurred", true);
-
-            var errorBox = new Box();
-            errorBox.AddToClassList("error-box");
-            errorBox.style.width = progressBarWidth;
-
-            var errorHeaderContainer = new VisualElement();
-            errorHeaderContainer.style.flexDirection = FlexDirection.Row;
-
-            int textWidthPercent = 70;
-
-            shortErrorMessage = new TextField();
-            shortErrorMessage.AddToClassList("short-error-message-label");
-            shortErrorMessage.name = "ErrorMessageInputField";
-            shortErrorMessage.value = "Basic info about what went wrong with a link to see details";
-            shortErrorMessage.style.width = new StyleLength(new Length(textWidthPercent, LengthUnit.Percent));
-
-            var errorButtonContainer = new VisualElement();
-            errorButtonContainer.style.width = new StyleLength(new Length(100 - textWidthPercent, LengthUnit.Percent));
-            errorButtonContainer.style.height = new StyleLength(new Length(100, LengthUnit.Percent));
-            errorButtonContainer.style.alignItems = Align.FlexEnd;
-            errorButtonContainer.style.justifyContent = Justify.Center;
-
-            var errorDetailsButton = new Button();
-            errorDetailsButton.text = "Details";
-            errorDetailsButton.AddToClassList("error-details-button");
-            errorDetailsButton.clicked += OnToggleDetailedErrorMessage;
-
-            detailedErrorScrollView = new ScrollView();
-            detailedErrorScrollView.AddToClassList("detailed-error-scrollview");
-
-            longErrorMessage = new TextField();
-            longErrorMessage.AddToClassList("long-error-message-label");
-            longErrorMessage.name = "ErrorMessageInputField";
-            longErrorMessage.value = "An error occured, please try again later";
-            longErrorMessage.isReadOnly = true;
-
-            Button homeButton = CreateBigButtonWithoutBackground("Start new deploy");
-            homeButton.clicked += OnHome;
-            homeButton.style.marginTop = 10;
-
-            // Layout
-            {
-                parent.Add(errorBox);
+                var debugContainer = CreateDebugContainer();
+                AnalyticsAction = (() =>
                 {
-                    errorBox.Add(errorHeaderContainer);
-                    {
-                        errorHeaderContainer.Add(shortErrorMessage);
-
-                        errorHeaderContainer.Add(errorButtonContainer);
-                        {
-                            errorButtonContainer.Add(errorDetailsButton);
-                        }
-                    }
-
-                    errorBox.Add(detailedErrorScrollView);
-                    {
-                        detailedErrorScrollView.Add(longErrorMessage);
-                    }
-                }
-                parent.Add(homeButton);
+                    Task.Run(async () => await analyticsApi.SendAnalyticsGA4("DebugUser", "DebugEvent"));
+                });
+                scrollView.Add(debugContainer);
             }
-        }
-
-        void CreateDeployFinished(VisualElement parent)
-        {
-            CreateTop(parent,
-                "Game deployed successfully!",
-                "Choose what you want to do next, you can go to the dashboard for an overview, or share the IP with your friends right away!");
-
-
-            CreateShowDeployResult(parent);
-
-            Button dashboardButton = CreateBigButton("Go to dashboard");
-            dashboardButton.clicked += OnDashboard;
-            dashboardButton.style.marginTop = 25;
-            dashboardButton.style.width = bigButtonWidth;
-            dashboardButton.style.marginLeft = 0;
-            dashboardButton.style.marginRight = 0;
-
-            Button homeButton = CreateBigButtonWithoutBackground("Start new deploy");
-            homeButton.clicked += OnHome;
-            homeButton.style.marginTop = 10;
-
-            // Layout
-            {
-                parent.Add(dashboardButton);
-                parent.Add(homeButton);
-            }
+#endif
         }
 
         #endregion
 
-        #region Section creation
+        #region Lifecycle callbacks
 
-        private void CreateTop(VisualElement parent, string title, string info)
+        protected override void Enable()
         {
-            Texture2D logoTextuer = (Texture2D)AssetDatabase.LoadAssetAtPath("Packages/com.unordinal.hosting/Editor/Icon-Silver.png", typeof(Texture2D));
-            var logoImage = new Image()
-            {
-                image = logoTextuer,
-            };
-            logoImage.AddToClassList("logo");
-
-            var titleLabel = new Label(title.ToUpper());
-            titleLabel.AddToClassList("Title");
-
-            var subTitleLabel = new Label(info);
-            subTitleLabel.AddToClassList("Subtitle");
-            subTitleLabel.name = "subtitle";
-
-            // Layout
-            {
-                parent.Add(logoImage);
-                parent.Add(titleLabel);
-                parent.Add(subTitleLabel);
-            }
-            
+            pluginData = pluginDataFactory.LoadPluginData();
+            EvaluateSignIn();
         }
 
-        private static Button CreateBigButton(string text)
+        protected override void OnFocused()
         {
-            var button = new Button();
-            button.AddToClassList("big-button");
-            button.text = text.ToUpper();
-
-            return button;
+            EvaluateSignIn();
         }
 
-        private static Button CreateBigButtonWithoutBackground(string text)
+        private async void Update()
         {
-            var button = new Button();
-            button.AddToClassList("big-button-no-background");
-            button.text = text.ToUpper();
-            return button;
+            CheckUnityBuildSupport();
+            await RunPortFinding();
+            TryContinueDeploy();
         }
 
-        void CreateProcessSettings(VisualElement parent, Port port)
+        private void CheckUnityBuildSupport()
         {
-            var row = CreatePortAndProtocol(parent, port);
-            Button addBtn = (Button)CreateAddRemovePortButton(true);
-            addBtn.clicked += OnAddPort(parent);
-            row.Add(addBtn);
-            row.style.marginBottom = 10; // Override unity style sheet
-
-            Button removeBtn = (Button)CreateAddRemovePortButton(false);
-            removeBtn.name = "remove-button";
-            removeBtn.clicked += OnRemovePort(parent, port, row);
-
-            if (parent.childCount == 0)
+            if (ActivePage == DeploymentPages.Start)
             {
-                firstRemoveButton = removeBtn;
-            }
-
-            // Layout
-            parent.Add(row);
-            {
-                row.Add(removeBtn);
-            }
-
-            EvaluateRemoveButonVisibility(firstRemoveButton, parent);
-        }
-
-        private void EvaluateRemoveButonVisibility(VisualElement btn, VisualElement parent)
-        {
-            firstRemoveButton.visible = parent.childCount > 1 ? true : false;
-        }
-
-        VisualElement CreatePortAndProtocol(VisualElement parent, Port port)
-        {
-            VisualElement rowContainer = new VisualElement();
-            rowContainer.style.flexDirection = FlexDirection.Row;
-
-            var portTooltip = "The port number can be found inside the transport added to the NetworkManager component";
-            var portLabel = new Label("Port");
-            portLabel.tooltip = portTooltip;
-            var portInput = new IntegerField();
-            portInput.tooltip = portTooltip;
-            portInput.RegisterValueChangedCallback(x =>
-            {
-                port.Number = x.newValue;
-                SavePorts();
-            });
-            portInput.AddToClassList("port-input");
-            portInput.name = "port-field";
-            portInput.value = port.Number;
-
-            var protocolLabel = new Label("Protocol");
-            var protocolComboBox = new EnumField(port.Protocol);
-            protocolComboBox.RegisterValueChangedCallback(x =>
-            {
-                port.Protocol = (Protocol)(x.newValue);
-                SavePorts();
-            });
-            protocolComboBox.AddToClassList("port-input");
-            protocolComboBox.name = "protocol-field";
-
-            // Layout
-            {
-                // Port label
-                rowContainer.Add(portLabel);
-                // Port input
-                rowContainer.Add(portInput);
-
-                // Protocol label
-                rowContainer.Add(protocolLabel);
-                // Protocol input
-                rowContainer.Add(protocolComboBox);
-            }
-
-            return rowContainer;
-        }
-
-        VisualElement CreateAddRemovePortButton(bool isAddButton)
-        {
-            var addPortButton = new Button();
-            addPortButton.AddToClassList("add-remove-port-button");
-            addPortButton.text = isAddButton ? "+" : "-";
-
-            return addPortButton;
-        }
-
-        void CreateProgressBar(VisualElement parent, string bigMessage, bool isErrorProgressBar = false)
-        {
-            var progresBarContainer = new VisualElement();
-
-            var progressBar = new Box();
-            progressBar.AddToClassList("progress-bar-background");
-            progressBar.style.width = progressBarWidth; // Style changes in c# will override the value in .uss file.
-
-            var progressForeground = new Box();
-            progressForeground.AddToClassList("progress-bar-foreground");
-            progressForeground.name = isErrorProgressBar ? "progress-error" : "progress";
-            progressForeground.style.width = progressBar.style.width.value.value * progress;
-            if (isErrorProgressBar)
-            {
-                progressForeground.style.backgroundColor = new Color(134.0f / 255.0f, 6.0f / 255.0f, 6.0f / 255.0f);
-            }
-
-            var progressBarTextContainer = new VisualElement();
-            progressBarTextContainer.AddToClassList("progress-bar-text-container");
-
-            var bigProgressBarLabel = new Label();
-            bigProgressBarLabel.text = bigMessage;
-            bigProgressBarLabel.AddToClassList("progress-bar-funny-message");
-
-            var smallMessageContainer = new VisualElement();
-            smallMessageContainer.AddToClassList("container-row-centered");
-
-            var percentLabel = new Label();
-            percentLabel.AddToClassList("percent-label");
-            percentLabel.AddToClassList("progress-label");
-            percentLabel.name = isErrorProgressBar ? "percent-error-label" : "percent-label";
-            percentLabel.text = ((int)progress * 100.0f).ToString();
-
-            var percentExplenationLabel = new Label();
-            percentExplenationLabel.AddToClassList("progress-label");
-            percentExplenationLabel.text = "% of process completed";
-
-            // Layout.
-            {
-                // ProgressBar
-                parent.Add(progresBarContainer);
+                var missingLinuxBuildSupport = !BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneLinux64);
+                if (missingLinuxBuildSupport)
                 {
-                    // ProgressBar (Background)
-                    progresBarContainer.Add(progressBar);
-                    {
-                        // Progress bar (Actuall progress)
-                        progressBar.Add(progressForeground);
-                    }
-
-                    // Progress bar text container
-                    progresBarContainer.Add(progressBarTextContainer);
-                    {
-                        // Funny message
-                        progressBarTextContainer.Add(bigProgressBarLabel);
-
-                        // Serious message
-                        progressBarTextContainer.Add(smallMessageContainer);
-                        {
-                            smallMessageContainer.Add(percentLabel);
-                            smallMessageContainer.Add(percentExplenationLabel);
-                        }
-                    }
+                    ShowPage(DeploymentPages.LinuxBuildSupportRequired);
                 }
             }
-        }
-
-        void CreateShowDeployResult(VisualElement parent)
-        {
-            var infoLabel = new Label("Your IP number");
-            infoLabel.style.marginTop = -20;
-            infoLabel.style.marginBottom = 10;
-
-            var resultContainer = new VisualElement();
-            resultContainer.style.flexDirection = FlexDirection.Row;
-
-            resultMessage = new TextField();
-            resultMessage.AddToClassList("big-result-field");
-            resultMessage.name = "BigResultInputField";
-            resultMessage.value = GetOldResult();
-            resultMessage.isReadOnly = true;
-            resultMessage.style.width = bigButtonWidth - copyResultButtonWidth;
-
-            var copyButton = new Button();
-            copyButton.clicked += OnCopyResult;
-            copyButton.AddToClassList("copy-button");
-            copyButton.style.width = copyResultButtonWidth;
-
-            var buttonLabel = new Label("Copy");
-            buttonLabel.AddToClassList("button-label-centered");
-
-
-            // Layout
+            if (ActivePage == DeploymentPages.LinuxBuildSupportRequired && !addDebugButtons)
             {
-                // Info
-                parent.Add(infoLabel);
-
-                // result container
-                parent.Add(resultContainer);
+                var hasLinuxBuildSupport = BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneLinux64);
+                if (hasLinuxBuildSupport)
                 {
-                    // Result
-                    resultContainer.Add(resultMessage);
-                    // Copy button
-                    resultContainer.Add(copyButton);
-                    {
-                        copyButton.Add(buttonLabel);
-                    }
+                    // User has added Linux build support, but not yet restarted Unity.
+                    ShowPage(DeploymentPages.RestartUnityRequired);
                 }
             }
         }
 
         #endregion
 
-        #region Page handling
-
-        void HideAllPages()
+        private void TryContinueDeploy()
         {
-            if(pages == null)
+            // When deploying we build a server (Linux) and a client (Win/Mac/Linux/any).
+            // This requires us to swap platform when building server, client and when swapping back to original.
+            // And when changing platform, local values are lost.
+            // Hence we use EditorPrefs instead.
+            var shouldDeploy = EditorPrefs.GetBool(UnordinalKeys.deployInNextUpdateKey, false);
+            if (shouldDeploy)
             {
-                return;
-            }
+                // On this update, we know that a server (and maybe client) have been built are ready to be deployed.
 
-            foreach (var page in pages.Values)
-            {
-                page.style.height = 0;
-                page.visible = false;
-            }
+                // Clean up so we only enter once per deploy.
+                EditorPrefs.SetBool(UnordinalKeys.deployInNextUpdateKey, false);
 
-            // Hide detailed error message
-            detailedErrorScrollView.visible = false;
-            detailedErrorScrollView.style.height = 0;
-            detailedErrorScrollView.style.paddingTop = 0;
-            detailedErrorScrollView.style.paddingBottom = 0;
-        }
-
-        void ShowPage(DeploymentPage page)
-        {
-            if(pages != null && pages.ContainsKey(page))
-            {
-                pages[page].style.height = new StyleLength(StyleKeyword.Auto);
-                pages[page].visible = true;
+                OnDeploy(playWithFriendsToggled);
             }
         }
 
-        private void UpdateProgressBar(Box progressForeground, Label percentLabel)
+        private void EvaluateSignIn()
         {
-            if (progressForeground != null)
+            if (tokenStorage.HasValidToken)
             {
-                progressForeground.style.width = progressBarWidth * progress;
-            }
-            if (percentLabel != null)
-            {
-                // Progress text with no decimals.
-                percentLabel.text = (progress * 100.0f).ToString("F1");
+                InitializeUserInfo().ContinueWith(userFetched =>
+                {
+                    if (!userFetched.Result || ActivePage != DeploymentPages.SignIn)
+                    {
+                        return;
+                    }
+                    ShowPage(DeploymentPages.Start);
+                },
+                TaskScheduler.FromCurrentSynchronizationContext());
             }
         }
 
-        #endregion
+        #region Event handlers
 
-        #region Button clicks
+        private void OnPageChanged(DeploymentPages oldPage, DeploymentPages newPage)
+        {
+            if (oldPage == DeploymentPages.Deploying && newPage == DeploymentPages.Error)
+            {
+                Task.Delay(10).ContinueWith(task =>
+                {
+                    ErrorProgress = Progress;
+                },
+                TaskScheduler.FromCurrentSynchronizationContext());
+            }
 
-        private async void OnSignIn(bool useDefaultBrowser)
+            if (newPage == DeploymentPages.Start)
+            {
+                StartFindingPorts();
+            }
+
+            // Analytics, send event for the loaded page.
+            Task.Run(async () => await analyticsApi.SendAnalyticsGA4(userID, GetEventName(newPage), isPageViewEvent: true));
+        }
+
+        private async void OnSignIn(Action<string> urlAction)
         {
             try
             {
-                var signInURL = await GetSignInURL();
-                if (signInURL != string.Empty)
-                {
-                    if (useDefaultBrowser)
-                    {
-                        Help.BrowseURL(signInURL);
-                    }
-                    else
-                    {
-                        UnityEngine.GUIUtility.systemCopyBuffer = signInURL;
-                    }
-                    await WaitForBrowserAuthentication();
-                }
-                else
-                {
-                    activePage = DeploymentPage.SignIn;
-                }
-
-                activePage = DeploymentPage.SignInSucess;
-                OnGUI(); // Refresh GUI.
-
+                loginFlow = new CancellationTokenSource();
+                var signInURL = await GetSignInURL(loginFlow.Token);
+                urlAction(signInURL);
+                ShowPage(DeploymentPages.SignInActive);
+                await WaitForBrowserAuthentication(loginFlow.Token);
+                userInfoHolder.Save();
+                ShowPage(DeploymentPages.SignInSuccess);
                 await Task.Delay(1000); // Show the success page for this long.
-
-                activePage = DeploymentPage.Start;
-                OnGUI(); // Refresh GUI.
+                ShowPage(DeploymentPages.Start);
             }
-            catch
+            catch (Exception e)
             {
-                // Sign in failed.
-
-                activePage = DeploymentPage.SignIn;
-                OnGUI();
+                if(!loginFlow.IsCancellationRequested)
+                {
+                    logger.LogError(e, "Error while processing login");
+                }
+                ShowPage(DeploymentPages.SignIn);
+            }
+            finally
+            {
+                loginFlow.Dispose();
             }
         }
 
-        private void OnCancelSignIn()
+        private async void OnCancelSignIn()
         {
-            loginFlow.Cancel();
-            activePage = DeploymentPage.SignIn;
-            OnGUI();
+            // Analytics
+            await analyticsApi.SendAnalyticsGA4(userID, GA4_Event_Clicked_Cancel_Sign_In);
+
+            loginFlow?.Cancel();
+            ShowPage(DeploymentPages.SignIn);
         }
 
-        private Action OnAddPort(VisualElement parent)
+        private async void OnPortsChanged(PortChange change)
         {
-            return (() =>
+            // Analytics 
+            if (change == PortChange.PortAdded)
             {
-                var newPort = new Port() { Number = 7777, Protocol = Protocol.UDP };
-                ports.Add(newPort);
-                CreateProcessSettings(parent, newPort);
-                SavePorts();
-            });
-        }
-
-        private Action OnRemovePort(VisualElement parent, Port port, VisualElement row)
-        {
-            return (() =>
+                await analyticsApi.SendAnalyticsGA4(userID, GA4_Event_Clicked_Add_Port);
+            }
+            else if (change == PortChange.PortRemoved)
             {
-                ports.Remove(port);
-
-                if (parent.childCount > 1)
-                {
-                    parent.Remove(row);
-                }
-                EvaluateRemoveButonVisibility(firstRemoveButton, parent);
-                var removeButtons = parent.Query<Button>().Where(b => b.name == "remove-button").ToList();
-                if (removeButtons.Count == 1)
-                {
-                    removeButtons[0].visible = false;
-                    firstRemoveButton = removeButtons[0];
-                }
-                SavePorts();
-            });
+                await analyticsApi.SendAnalyticsGA4(userID, GA4_Event_Clicked_Remove_Port);
+            }
         }
 
-        private async void OnDeploy()
+        private async Task DoDeploy(bool withClient)
         {
-            // Set initial values.
-            progress = stepToProgressDictionary[DeploymentStep.BuildingServer];
-            activePage = DeploymentPage.Deploying;
-            resultMessage.value = string.Empty;
-            OnGUI(); // Refresh UI to ensure latest progress is visible.
-            deploymentFlow.Dispose(); // Clean up old token source.
-            deploymentFlow = new CancellationTokenSource(); // "Reset" the cancelation token source.
+            // Analytics
+            await analyticsApi.SendAnalyticsGA4(userID, GA4_Event_Clicked_Deploy);
 
             try
             {
-                var result = await Deploy(deploymentFlow.Token);
+                ResetDeployment();
+                var result = await Deploy(deploymentFlow.Token, withClient);
                 if (result != null)
                 {
-                    resultMessage.value = result;
-                    SaveResult();
-                    activePage = DeploymentPage.Finished;
+                    // Set the values that is shown on the result page.
+                    IpResult = result.ip;
+                    PlayWithFriendsResult = result.downloadUrl;
+                    ShowPage(DeploymentPages.Finished);
                 }
                 else
                 {
-                    activePage = DeploymentPage.Start;
+                    ShowPage(DeploymentPages.Start);
                 }
             }
             catch (Exception e)
             {
-                shortErrorMessage.value = e.Message;
-                longErrorMessage.value = e.StackTrace;
-                resultMessage.value = string.Empty;
-                activePage = DeploymentPage.Error;
+                Debug.LogException(e);
+
+                // Analytics
+                await analyticsApi.SendAnalyticsGA4(userID, GetEventFailedName(activeStep), details: e.Message);
+
+                ShortErrorMessage = e.Message;
+                LongErrorMessage = e.StackTrace;
+                IpResult = string.Empty;
+                ShowPage(DeploymentPages.Error);
             }
+            finally
+            {
+                deploymentFlow.Dispose(); // Clean up token source.
+            }
+        }
+
+        private async void OnDeploy(bool withClient)
+        {
+            await DoDeploy(withClient);
+        }
+
+        private void ResetDeployment()
+        {
+            ShowPage(DeploymentPages.Deploying);
+            Progress = stepToProgressDictionary[DeploymentStep.ShowStarted];
+            IpResult = string.Empty;
+            nonAwaitedTaskFailed = false;
+            failMessage = "Something went wrong.";
+            ResetError();
+            deploymentFlow = new CancellationTokenSource(); // "Reset" the cancellation token source.
         }
 
         private async void OnCancelDeploy()
         {
+            // Analytics
+            await analyticsApi.SendAnalyticsGA4(userID, GA4_Event_Clicked_Cancel_Deploy);
+
             // Cancel the deployment.
-            deploymentFlow.Cancel();
-
-            // Wait until cancelation was successful.
-            while (activePage == DeploymentPage.Deploying)
+            if (deploymentFlow != null)
             {
-                await Task.Delay(5);
-            }
+                deploymentFlow?.Cancel();
 
-            OnGUI(); // Update UI to show correct view.
-        }
-
-        private void OnToggleDetailedErrorMessage()
-        {
-            detailedErrorScrollView.visible = !detailedErrorScrollView.visible;
-            if (detailedErrorScrollView.visible)
-            {
-                detailedErrorScrollView.style.height = new StyleLength(StyleKeyword.Auto);
-                detailedErrorScrollView.style.paddingTop = 10;
-                detailedErrorScrollView.style.paddingBottom = 10;
+                // Wait until cancelation was successful.
+                while (ActivePage == DeploymentPages.Deploying)
+                {
+                    await Task.Delay(5);
+                }
             }
             else
             {
-                detailedErrorScrollView.style.height = 0;
-                detailedErrorScrollView.style.paddingTop = 0;
-                detailedErrorScrollView.style.paddingBottom = 0;
+                ShowPage(DeploymentPages.Start);
             }
         }
 
-        private void OnCopyResult()
-        {
-            var test = rootVisualElement.Q<TextField>("BigResultInputField");
-            if (test != null)
-            {
-                UnityEngine.GUIUtility.systemCopyBuffer = test.value;
-            }
-        }
-
-        private void OnDashboard()
+        private async void OnDashboard()
         {
             Help.BrowseURL("https://app.unordinal.com/");
+
+            // Analytics
+            await analyticsApi.SendAnalyticsGA4(userID, GA4_Event_Clicked_Dashboard);
         }
 
-        private void OnHome()
+        private async void OnHome()
         {
-            activePage = DeploymentPage.Start;
+            // Analytics
+            await analyticsApi.SendAnalyticsGA4(userID, GA4_Event_Clicked_Home);
+
+            ShowPage(DeploymentPages.Start);
         }
 
-        #endregion
-
-        #region PlayerPrefs
-
-        private void EvaluateSignIn()
+        private async Task<string> GetSignInURL(CancellationToken cancelToken)
         {
-            tokenStorage.Load();
-            if (tokenStorage.HasValidToken) // from previous run
-            {
-                var initializationTask = InitializeUserInfo();
-                initializationTask.Wait();
-                if (initializationTask.Result && showSignIn)
-                {
-                    activePage = DeploymentPage.Start;
-                    showSignIn = false;
-                }
-            }
+            var response = await auth0Client.getDeviceCode(cancelToken);
+            deviceCode = response.device_code;
+            VerificationCode = response.user_code;
+            return response.verification_uri_complete;
+        }
+
+        private async Task WaitForBrowserAuthentication(CancellationToken cancelToken)
+        {
+            logger.LogDebug("Authorize loop start");
+            _ = await auth0Client.getToken(deviceCode, cancelToken);
+            logger.LogDebug("Authorize loop finished, reading user info");
+            await InitializeUserInfo();
         }
 
         private async Task<bool> InitializeUserInfo()
@@ -951,226 +446,281 @@ namespace Unordinal.Hosting
             var response = await auth0Client.isTokenValid();
             if (response.valid)
             {
-                userInfoHolder.userInfo = response.user ?? new UserInfo();
-                return true;
+                userInfoHolder.UserInfo = response.user ?? new UserInfo();
             }
-            return false;
+            return response.valid;
         }
 
-        private void LoadPorts()
+        private async Task SetActiveStep(DeploymentStep step)
         {
-            ports = new List<Port>();
-            amountOfPorts = PlayerPrefs.HasKey("AmountOfPorts") ? PlayerPrefs.GetInt("AmountOfPorts") : 0;
-            if (amountOfPorts > 0)
-            {
-                for (int i = 0; i < amountOfPorts; i++)
-                {
-                    var port = new Port();
-                    var portKey = "Port" + i;
-                    var protocolKey = "Protocol" + i;
-                    if (PlayerPrefs.HasKey(portKey) && PlayerPrefs.GetInt(portKey) > 0)
-                    {
-                        port.Number = PlayerPrefs.GetInt(portKey);
-                    }
-                    if (PlayerPrefs.HasKey(protocolKey))
-                    {
-                        port.Protocol = (Protocol)PlayerPrefs.GetInt(protocolKey);
-                    }
-                    ports.Add(port);
+            activeStep = step;
 
+            // Analytics
+            await analyticsApi.SendAnalyticsGA4(userID, GetEventName(step));
+        }
+
+        private async void PreDeploy()
+        {
+            ShowPage(DeploymentPages.Wait);
+            await Task.Delay(50); // Make time for page to change.
+
+            // Make one call to backend to be sure we dont get any errors
+            // (Sometimes it has been the case that, server/client is building for several minutes
+            //  just to figure out that one need to sign in again..)
+            // Better detect this as early as possible.
+            var guid = await RegisterProject();
+            if(guid == Guid.Empty)
+            {
+                // Something went wrong when registering project.
+                return;
+            }
+
+            BuildServerClient(playWithFriendsToggled);
+        }
+
+        private async Task<Guid> RegisterProject()
+        {
+            deploymentFlow = new CancellationTokenSource();
+
+            try
+            {
+                progressText = "Registering project...";
+                if (pluginData.ProjectID == default)
+                {
+                    // first time project deployment
+
+                    // Add project
+                    await SetActiveStep(DeploymentStep.AddProject);
+                    pluginData.ProjectID = await unordinalApi.addProject(pluginData.ProjectName);
+                    pluginDataFactory.SavePluginData(pluginData);
+                    refreshHandler.ForceRefresh();
+                }
+
+                // Building docker image
+                // (Actually: Just writes down data to HostingRuns DB, and returns guid (key) for item in DB)
+                await SetActiveStep(DeploymentStep.BuildingDockerImage);
+                deploymentGuid = Guid.Empty;
+                progressText = "Building docker image...";
+                deploymentGuid = await unordinalApi.startProcess(pluginData.ProjectID, Ports, deploymentFlow.Token);
+
+                if (deploymentGuid == Guid.Empty) { throw (new Exception("Ops, something went wrong.")); } // Shows error view.
+
+                // UI, might reloaded and stuff which might cause the value to clear.
+                // Save it for loading later.
+                EditorPrefs.SetString(UnordinalKeys.deploymentGuidKey, deploymentGuid.ToString());
+            }
+            catch(Exception e)
+            {
+                ShortErrorMessage = "Something went wrong, try closing the plugin and opening it again.";
+                LongErrorMessage = "Most likely, the plugin is no longer detecting that you are signed in.";
+                ShowPage(DeploymentPages.Error);
+                deploymentGuid = Guid.Empty;
+
+                var invalidOperation = e.Message == "Operation is not valid due to the current state of the object.";
+                if (invalidOperation || e.Message.ToLower().Contains("forbidden"))
+                {
+                    if (!addDebugButtons)
+                    {
+                        // This is a customer
+
+                        // User should sign in again.
+                        // Clear sign in information.
+                        UnordinalKeys.ClearSignInInformation();
+                        tokenStorage.Clear();
+
+                        // Show sign in page, so user can sign in again.
+                        ShowPage(DeploymentPages.SignIn);
+                    }
+                    else
+                    {
+                        // This is a developer
+
+                        // We dont want to clear the sign in information, since we might want to debug it.
+                        ShortErrorMessage = "You are having trouble with your Auth0 token, debug it." +
+                            "Or clear your plugin data by using the red debug button and restart plugin.";
+                        LongErrorMessage = e.StackTrace;
+                    }
                 }
             }
-            else
+            finally
             {
-                ports.Add(new Port() { Number = 7777, Protocol = Protocol.UDP });
+                deploymentFlow.Dispose();
             }
 
+            return deploymentGuid;
         }
 
-        private void SavePorts()
+        private void BuildServerClient(bool withClient)
         {
-            PlayerPrefs.SetInt("AmountOfPorts", ports.Count());
-            int i = 0;
-            foreach (var port in ports)
+            bool shouldDeploy = true;
+            try
             {
-                var portKey = "Port" + i;
-                var protocolKey = "Protocol" + i;
-                PlayerPrefs.SetInt(portKey, port.Number);
-                PlayerPrefs.SetInt(protocolKey, (int)port.Protocol);
-                ++i;
+                if (withClient)
+                // Client Scope - BEWARE we expect the user's BuildTarget to be unmodified here, hence building before server which switches
+                // Client is being built before server, otherwise we have sometimes seens some errors while building client.
+                {
+                    // Build client
+                    clientOutputPath = clientBundler.Bundle(originalGroup, originalTarget);
+                }
+
+                // Server scope
+                // Server is built second since client is already on correct platform
+                // (IMPORTANT NOTE: We have seen some errors when client is built second while linux is the temporary target platform,
+                //                  hence build client first.)
+                {
+                    // Build server
+                    serverOutputPath = bundler.Bundle(BundleArchitectures.Intel64);
+                }
+            }
+            catch (Exception e)
+            {
+                shouldDeploy = false;
+                
+                ShortErrorMessage = e.Message;
+                LongErrorMessage = e.StackTrace;
+                ShowPage(DeploymentPages.Error);
+            }
+            finally
+            {
+                // Server/client has finished building, swap back to original target.
+
+                // When swapping build target, properties/fields loses ther values.
+                // Hence we need to store in EditorPrefs.
+                EditorPrefs.SetBool(UnordinalKeys.shouldDoADeployKey, shouldDeploy);
+
+                if (EditorUserBuildSettings.activeBuildTarget == originalTarget)
+                {
+                    // We are already on original target.
+                    EvaluateReadyForDeploy();
+                }
+                else
+                {
+                    // Swap back target to original target.
+                    EditorUserBuildSettings.SwitchActiveBuildTargetAsync(originalGroup, originalTarget);
+                }
             }
         }
 
-        private string GetOldResult()
+        public int callbackOrder { get { return 0; } } // TODO: Check if this can be removed.
+        public void OnActiveBuildTargetChanged(BuildTarget previousTarget, BuildTarget newTarget)
         {
-            return PlayerPrefs.GetString("DeployedIpResult", "000.000.000.000:000");
+            EvaluateReadyForDeploy();
         }
 
-        private void SaveResult()
+        private void EvaluateReadyForDeploy()
         {
-            PlayerPrefs.SetString("DeployedIpResult", resultMessage.value);
+            var shouldDoADeploy = EditorPrefs.GetBool(UnordinalKeys.shouldDoADeployKey, false);
+            if (shouldDoADeploy)
+            {
+                // Clean up, so that it wont do a deploy next time platform is changed.
+                EditorPrefs.SetBool(UnordinalKeys.shouldDoADeployKey, false); 
+
+                if (shouldDoADeploy)
+                {
+                    EditorPrefs.SetBool(UnordinalKeys.deployInNextUpdateKey, shouldDoADeploy);
+                }
+            }
         }
 
-        #endregion
-
-        #region Debug stuff
-
-        private void AddDebugButtons(VisualElement root)
+        private class DeploymentResult
         {
-            VisualElement debugContainer = new VisualElement();
-            debugContainer.style.flexDirection = FlexDirection.Row;
-            debugContainer.style.marginBottom = 0;
-
-            var signInButton = new Button();
-            var signInActiveButton = new Button();
-            var signInSuccessButton = new Button();
-            var startButton = new Button();
-            var deployingButton = new Button();
-            var errorButton = new Button() { text = "e" };
-            var finishedButton = new Button();
-            var resetAuth0Button = new Button();
-            resetAuth0Button.style.backgroundColor = Color.red;
-
-            signInButton.tooltip = "Sign in page";
-            signInActiveButton.tooltip = "Sign in active page";
-            signInSuccessButton.tooltip = "Sign in successful page";
-            startButton.tooltip = "Start deployment page";
-            deployingButton.tooltip = "Deployment in progress page";
-            errorButton.tooltip = "Deployment error page";
-            finishedButton.tooltip = "Deployment finished page";
-            resetAuth0Button.tooltip = "Reset stored sign in token to force sign in again";
-
-            signInButton.clicked += (() =>
-            {
-                activePage = DeploymentPage.SignIn;
-            });
-            signInActiveButton.clicked += (() =>
-            {
-                activePage = DeploymentPage.SignInActive;
-            });
-            signInSuccessButton.clicked += (() =>
-            {
-                activePage = DeploymentPage.SignInSucess;
-            });
-            startButton.clicked += (() =>
-            {
-                activePage = DeploymentPage.Start;
-            });
-            deployingButton.clicked += (() =>
-            {
-                activePage = DeploymentPage.Deploying;
-            });
-            errorButton.clicked += (() =>
-            {
-                activePage = DeploymentPage.Error;
-            });
-            finishedButton.clicked += (() =>
-            {
-                activePage = DeploymentPage.Finished;
-            });
-            resetAuth0Button.clicked += (() =>
-            {
-                PlayerPrefs.SetString("oAuthToken", "lajksdljfa");
-            });
-
-            debugContainer.Add(signInButton);
-            debugContainer.Add(signInActiveButton);
-            debugContainer.Add(signInSuccessButton);
-            debugContainer.Add(startButton);
-            debugContainer.Add(deployingButton);
-            debugContainer.Add(errorButton);
-            debugContainer.Add(finishedButton);
-            debugContainer.Add(resetAuth0Button);
-            root.Add(debugContainer);
+            public string ip;
+            public string downloadUrl;
         }
 
-        #endregion
-
-        private async Task<string> GetSignInURL()
+        private async Task<DeploymentResult> Deploy(CancellationToken token, bool withClient)
         {
-            var response = await auth0Client.getDeviceCode();
-            deviceCode = response.device_code;
-            verificationCodeLabel.text = response.user_code;
-            activePage = DeploymentPage.SignInActive;
-            return response.verification_uri_complete;
-        }
+            // UI, might have reloaded and stuff which might have cleared the value.
+            // It was saved when obtained, now load it again.
+            deploymentGuid = Guid.Parse(EditorPrefs.GetString(UnordinalKeys.deploymentGuidKey));
 
-        public async Task WaitForBrowserAuthentication()
-        {
-            logger.LogDebug("Authorize loop start");
-            loginFlow.Dispose();
-            loginFlow = new CancellationTokenSource();
-            var cancelToken = loginFlow.Token;
-            var tokenResponse = await auth0Client.getToken(deviceCode, cancelToken);
-
-            logger.LogDebug("Authorize loop finished, reading user info");
-            await InitializeUserInfo();
-        }
-
-        private async Task<string> Deploy(CancellationToken token)
-        {
             LoadEstimatedTimes();
 
             // Attempt at making the deployment page visible before UI is locked during server build.
             // This is to get the correct progress visible while building the server.
-            await Task.Delay(50);
+            await Task.Delay(50, token);
 
-            progressText = "Registering project...";
-            if (pluginData.ProjectID == default) { // first time project deployment
-                pluginData.ProjectID = await unordinalApi.addProject(pluginData.ProjectName, token);
-                pluginData.Save();
-                refreshHandler.forceRefresh();
+            if (deploymentFlow.IsCancellationRequested) { return null; }
+
+            string serverTarFilename = Path.Combine(Constants.buildFolder, "server.tar.gz");
+
+            // Server scope
+            {
+                // Zipping server
+                await SetActiveStep(DeploymentStep.ZippingServer);
+                progressText = "Zipping server...";
+                Func<Task> zippingFunc = (async () =>
+                    await archiver.CreateTarGZAsync(serverTarFilename, serverOutputPath.Replace("\\", "/"), token));
+                await InterpolateProgressBarBetweenSteps(zippingFunc, DeploymentStep.ZippingServer);
             }
 
             if (deploymentFlow.IsCancellationRequested) { return null; }
 
-            // Build server
-            progressText = "Building server...";
-            string outputPath = bundler.Bundle(BundleArchitectures.Intel64);
+            var clientZipFileName = Path.Combine(Constants.buildFolder, "client.zip");
+
+            if (withClient)
+            // Client scope
+            {
+                // Zipping client
+                await SetActiveStep(DeploymentStep.ZippingClient);
+                progressText = "Zipping client...";
+                //TODO: .zip would probably be friendlier to most end users
+                Func<Task> zippingFunc = (async () =>
+                    await archiver.CreateZipAsync(clientZipFileName, clientOutputPath.Replace("\\", "/"), token));
+                await InterpolateProgressBarBetweenSteps(zippingFunc, DeploymentStep.ZippingClient);
+            }
 
             if (deploymentFlow.IsCancellationRequested) { return null; }
 
-            // Zipping server
-            progressText = "Zipping server...";
-            Func<Task> zippingFunc = (async () =>
-                await archiver.CreateTarGZAsync("server.tar.gz", outputPath.Replace("\\", "/"), token));
-            await InterpolateProgressBarBetweenSteps(zippingFunc, DeploymentStep.ZippingServer);
+            // Server Upload
+            {
+                // Get upload URL
+                await SetActiveStep(DeploymentStep.GetServerUploadURL);
+                progressText = "GetUploadUrl...";
+                var uploadUrl = string.Empty;
+                Func<Task> getUploadUrlFunc = (async () => uploadUrl = await unordinalApi.getGameServerUploadUrl(deploymentGuid, token));
+                await InterpolateProgressBarBetweenSteps(getUploadUrlFunc, DeploymentStep.GetServerUploadURL);
+
+                if (deploymentFlow.IsCancellationRequested) { return null; }
+
+                // Upload file
+                await SetActiveStep(DeploymentStep.UploadServer);
+                progressText = "Upload file!...";
+                Func<Task> uploadFileFunc = (async () => await fileUploader.UploadFile(uploadUrl, serverTarFilename, token));
+                await InterpolateProgressBarBetweenSteps(uploadFileFunc, DeploymentStep.UploadServer);
+            }
 
             if (deploymentFlow.IsCancellationRequested) { return null; }
 
-            // Building docker image
-            var guid = Guid.Empty;
-            Func<Task> buildDockerImageFunc = (async () =>
-                guid = await unordinalApi.startProcess(
-                    pluginData.ProjectID,
-                    new List<Port>(ports),
-                    token));
-            await InterpolateProgressBarBetweenSteps(buildDockerImageFunc, DeploymentStep.BuildingDockerImage);
-            if (guid == Guid.Empty) { throw (new Exception("Ops, something went wrong.")); } // Shows error view.
+            // Client upload
+            GameClientUrlsResponse uploadClientResponse = null;
+            if (withClient)
+            {
+                // Get upload url of client
+                await SetActiveStep(DeploymentStep.GetClientUploadURL);
+                progressText = "GetUploadUrl...";
+                var uploadClientUrl = string.Empty;
+                Func<Task> getUploadClientUrlFunc = (async () => uploadClientResponse = await unordinalApi.getGameClientUrls(deploymentGuid, token));
+                await InterpolateProgressBarBetweenSteps(getUploadClientUrlFunc, DeploymentStep.GetClientUploadURL);
 
-            if (deploymentFlow.IsCancellationRequested) { return null; }
+                if (deploymentFlow.IsCancellationRequested) { return null; }
 
-            // Get upload URL
-            progressText = "GetUploadUrl...";
-            var uploadUrl = string.Empty;
-            Func<Task> getUploadUrlFunc = (async () => uploadUrl = await unordinalApi.getUploadUrl(guid, token));
-            await InterpolateProgressBarBetweenSteps(getUploadUrlFunc, DeploymentStep.GetUploadURL);
-
-            if (deploymentFlow.IsCancellationRequested) { return null; }
-
-            // Upload file
-            progressText = "Upload file!...";
-            Func<Task> uploadFileFunc = (async () => await fileUploader.UploadFile(uploadUrl, @"server.tar.gz", token));
-            await InterpolateProgressBarBetweenSteps(uploadFileFunc, DeploymentStep.UploadFile);
+                // Ready to upload client file
+                await SetActiveStep(DeploymentStep.UploadClient);
+                progressText = "Upload file!...";
+                Func<Task> uploadGameClientFileFunc = (async () => await fileUploader.UploadFile(uploadClientResponse.uploadUrl, clientZipFileName, token));
+                await InterpolateProgressBarBetweenSteps(uploadGameClientFileFunc, DeploymentStep.UploadClient);
+            }
 
             if (deploymentFlow.IsCancellationRequested) { return null; }
 
             // Build image
+            await SetActiveStep(DeploymentStep.BuildImage);
             progressText = "Build image!...";
-            /*var runId = */await unordinalApi.buildImage(guid, token);
+            await unordinalApi.buildImage(deploymentGuid, token);
             Func<Task> checkBuildStatusFunc = (async () =>
                 await TaskHelpers.RetryWithCondition(
-                    () => unordinalApi.checkBuildStatus(guid),
+                    () => unordinalApi.checkBuildStatus(deploymentGuid),
                     (result) => result.Status == "Succeeded",
                     token,
                     maxRetries: int.MaxValue,
@@ -1180,13 +730,14 @@ namespace Unordinal.Hosting
             if (deploymentFlow.IsCancellationRequested) { return null; }
 
             // Find suitable region
+            await SetActiveStep(DeploymentStep.PingRegions);
             progressText = "Evaluate region!...";
             Dictionary<string, long> regions = new Dictionary<string, long>(); // If failing to evaluate good region, it will still be able to deploy.
             Func<Task> regionFunc = (async () =>
                 regions = await regionalDeploymentService.Ping(regionalDeploymentService.ListOfRegions(), token));
             await InterpolateProgressBarBetweenSteps(regionFunc, DeploymentStep.PingRegions);
 #if DEBUG
-            if (regions.Count == 0) 
+            if (addDebugButtons && regions.Count == 0)
             {
                 Debug.Log("Failed to evaluate good region.");
             }
@@ -1195,12 +746,32 @@ namespace Unordinal.Hosting
             if (deploymentFlow.IsCancellationRequested) { return null; }
 
             // Deploy game
+            await SetActiveStep(DeploymentStep.Deploying);
             progressText = "Deploy game!...";
-            await unordinalApi.deploy(guid, regions, token);
+#pragma warning disable CS4014 // Disable warning regarding async task not being awaited.
+
+            // Don't await this, since we are pulling for the status.
+            // The REST-api has an await in it in order to be able to return the result.
+            // Hence, we continue without awaiting and obtain the result later.
+            unordinalApi.deploy(deploymentGuid, regions, token).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    // The task failed.
+
+                    // Since we are not awaiting this async task, exceptions are not catched.
+                    // We therefore need a way to indicate that it failed.
+                    // This bool is therefore used to mark failure and used later.
+                    nonAwaitedTaskFailed = true;
+                    failMessage = t.Exception.InnerException.Message;
+                }
+            });
+
+#pragma warning restore CS4014 
             DeployStatusMessage deployStatusMessage = default;
             Func<Task> deploymentFunc = (async () =>
                 deployStatusMessage = await TaskHelpers.RetryWithCondition(
-                    () => unordinalApi.checkDeployStatus(guid),
+                    () => unordinalApi.checkDeployStatus(deploymentGuid),
                     result => !string.IsNullOrEmpty(result.Ip),
                     token,
                     maxRetries: int.MaxValue,
@@ -1210,13 +781,21 @@ namespace Unordinal.Hosting
             if (deploymentFlow.IsCancellationRequested) { return null; }
 
             // Deployment-process finished
-            Func<Task> delayFunc = (async () => await Task.Delay(500)); // Go from 94% to 100 % over 500ms
+            await SetActiveStep(DeploymentStep.ShowFinished);
+            Func<Task> delayFunc = (async () => await Task.Delay(500, token)); // Go from 94% to 100 % over 500ms
             await InterpolateProgressBarBetweenSteps(delayFunc, DeploymentStep.ShowFinished);
 
-            await Task.Delay(500); // Show 100% for this long (ms)
+            await Task.Delay(500, token); // Show 100% for this long (ms)
 
             progressText = "Publish okay!";
-            return deployStatusMessage.Ip;
+
+            return new DeploymentResult()
+            {
+                ip = deployStatusMessage.Ip,
+                downloadUrl = uploadClientResponse != null ? uploadClientResponse.downloadUrl : string.Empty
+            };
         }
+
+        #endregion
     }
 }

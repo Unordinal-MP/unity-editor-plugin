@@ -41,5 +41,19 @@ namespace Unordinal.Editor
 
             return page;
         }
+
+        float progressFeedbackInterval = 1.0f / 120; // 120 updates per second
+        double lastprogressFeedback = 0.0f;
+        private void HandleProgressBarFeedback()
+        {
+            if (ActivePage == DeploymentPages.Deploying)
+            {
+                if (UnityEditor.EditorApplication.timeSinceStartup - lastprogressFeedback > progressFeedbackInterval)
+                {
+                    lastprogressFeedback = UnityEditor.EditorApplication.timeSinceStartup;
+                    progressBar.RenderProgressFeedback();
+                }
+            }
+        }
     }
 }

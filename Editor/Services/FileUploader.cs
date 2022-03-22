@@ -36,6 +36,7 @@ namespace Unordinal.Editor.Services
 #pragma warning restore 0618
             var content = new StreamContent(stream);
             content.Headers.Add("x-ms-blob-type", "BlockBlob");
+            content.Headers.Add("x-ms-version", "2019-12-12");
             request.Content = content;
             return request;
         }

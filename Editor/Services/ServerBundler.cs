@@ -20,6 +20,12 @@ namespace Unordinal.Editor.Services
         {
             CleanupBeforePreviousBuilds();
             unityBuilder.Build(Path.Combine(HostingBuildPath, architecture.Identifier), architecture, UnityBuilder.CollectScenes(WhichBuild.Server));
+            var buildSucceeded = Directory.Exists(HostingBuildPath);
+            if(!buildSucceeded)
+            {
+                // When building server without Linux support, it's possible to get a succeeded build report even though a server was never built.
+                throw new System.Exception("Server build failed, make sure you have Linux build support added. A restart of Unity might also be needed.");
+            }
             File.WriteAllText(DockerFilePath, GetDockerFileContent(architecture));
             return RootPath;
         }

@@ -201,6 +201,7 @@ namespace Unordinal.Editor
             CheckUnityBuildSupport();
             await RunPortFinding();
             TryContinueDeploy();
+            HandleProgressBarFeedback();
         }
 
         private void CheckUnityBuildSupport()

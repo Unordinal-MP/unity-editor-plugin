@@ -14,7 +14,9 @@ using Unordinal.Editor.Services;
 using Unordinal.Editor.UI;
 using Unordinal.Editor.Utils;
 using System.IO;
+using System.Linq;
 using UnityEditor.Build;
+using UnityEditor.UIElements;
 
 namespace Unordinal.Editor
 {
@@ -52,6 +54,8 @@ namespace Unordinal.Editor
         private ILogger<GuiHosting> logger;
         private AzureRegionPinger regionalDeploymentService;
         private PortFinder portFinder;
+
+        // Debug stuff
         private bool addDebugButtons = false;
 
         // Deployment
@@ -63,6 +67,8 @@ namespace Unordinal.Editor
         string serverOutputPath = null;
         string clientOutputPath = null;
         Guid deploymentGuid = Guid.Empty;
+        bool playmodeRequested = false; // When true, unity will enter play mode upon canceling deployment.
+        DeploymentWillCancelPopup warningPopup; // This popup is used to warn user that deployment will be canceled if they are to enter play mode.
 
         // Analytics
         string userID => userInfoHolder?.UserInfo.sub;
@@ -103,6 +109,8 @@ namespace Unordinal.Editor
             this.logger = logger;
             this.regionalDeploymentService = regionalDeploymentService;
             this.portFinder = portFinder;
+
+            EditorApplication.playModeStateChanged += PlayModeStateChanged;
         }
 
         protected override void DoCreateGUI()
@@ -179,6 +187,16 @@ namespace Unordinal.Editor
                 scrollView.Add(debugContainer);
             }
 #endif
+
+            warningPopup = new DeploymentWillCancelPopup(rootVisualElement, (() =>
+            {
+                deploymentFlow?.Cancel();
+                playmodeRequested = true;
+                warningPopup.ClosePopupInPlugin();
+            }));
+
+            // Evaluate the version once the GUI has been created.
+            EvaluateVersion();
         }
 
         #endregion
@@ -202,6 +220,7 @@ namespace Unordinal.Editor
             await RunPortFinding();
             TryContinueDeploy();
             HandleProgressBarFeedback();
+            warningPopup?.TryAnimateToGetAttention();
         }
 
         private void CheckUnityBuildSupport()
@@ -222,6 +241,24 @@ namespace Unordinal.Editor
                     // User has added Linux build support, but not yet restarted Unity.
                     ShowPage(DeploymentPages.RestartUnityRequired);
                 }
+            }
+        }
+
+        private void PlayModeStateChanged(PlayModeStateChange obj)
+        {
+            var playPressedAndDeploying = 
+                obj == PlayModeStateChange.ExitingEditMode && 
+                (ActivePage == DeploymentPages.Wait || ActivePage == DeploymentPages.Deploying);
+            if (playPressedAndDeploying)
+            {
+                // The plugin will prevent the user from starting game (pressing play)
+                // Because of this we realy need to get the attention of the user.
+                // One of these steps is that the Hosting plugin must be visible.
+                // Focus() makes sure the plugin is visible.
+                this.Focus();
+
+                warningPopup.ShowWarningPopup();
+                EditorApplication.isPlaying = false;
             }
         }
 
@@ -347,7 +384,11 @@ namespace Unordinal.Editor
                     // Set the values that is shown on the result page.
                     IpResult = result.ip;
                     PlayWithFriendsResult = result.downloadUrl;
+                    DeployPort = result.Ports;
+                    // BuildPortContainer();
                     ShowPage(DeploymentPages.Finished);
+                    DeployData deployData = new DeployData(IpResult, DeployPort);
+                    deployData.Save();
                 }
                 else
                 {
@@ -369,7 +410,76 @@ namespace Unordinal.Editor
             finally
             {
                 deploymentFlow.Dispose(); // Clean up token source.
+                if(playmodeRequested)
+                {
+                    await Task.Delay(50); // Wait for correct page to show.
+                    EditorApplication.isPlaying = true;
+                }
             }
+        }
+
+        private void BuildPortContainer()
+        {
+            var mappedPortsCount = DeployPort.FindAll(p => !p.Number.Equals(p.ExternalNumber)).Count();
+            if (mappedPortsCount == 0)
+            {
+                return;
+            }
+            var infoLabel = new Label("Port Mapping");
+            infoLabel.style.marginTop = 20;
+            infoLabel.style.marginBottom = 10;
+            deployPortContainer.Add(infoLabel);
+            foreach (var port in DeployPort)
+            {
+                var row = CreateDeployedPortRow(port.Protocol.ToString(), port.Number, port.ExternalNumber);
+                deployPortContainer.Add(row);
+            }
+        }
+
+        private static VisualElement CreateDeployedPortRow(string protocol, int internalNumber, int externalNumber)
+        {
+            VisualElement rowContainer = new VisualElement();
+            rowContainer.style.flexDirection = FlexDirection.Row;
+            var portInputInternal = new Label(internalNumber.ToString());
+            portInputInternal.AddToClassList("internal-port-label");
+             
+            var successImage = Assets.Images["PortMapping"];
+            successImage.AddToClassList("port-mapping-image");
+
+            rowContainer.Add(portInputInternal);
+            rowContainer.Add(successImage);
+            
+            int copyResultButtonWidth = 50;
+            int bigButtonWidth = 130;
+            
+            var resultContainer = new VisualElement();
+            resultContainer.AddToClassList("marginFive");
+            resultContainer.style.flexDirection = FlexDirection.Row;
+            
+            var externalPortField = new TextField();
+            externalPortField.AddToClassList("external-port-field");
+            externalPortField.name = "BigResultInputField";
+            externalPortField.isReadOnly = true;
+            externalPortField.style.width = bigButtonWidth - copyResultButtonWidth;
+            externalPortField.value = externalNumber.ToString();
+             
+            var copyButton = new Button();
+            copyButton.clicked += () => UnityEngine.GUIUtility.systemCopyBuffer = externalPortField.value;
+            copyButton.AddToClassList("copy-button");
+            copyButton.style.width = copyResultButtonWidth;
+
+            var buttonLabel = new Label("Copy");
+            buttonLabel.AddToClassList("button-label-centered");
+
+            resultContainer.Add(externalPortField);
+            resultContainer.Add(copyButton);
+            {
+                copyButton.Add(buttonLabel);
+            }
+
+            rowContainer.Add(resultContainer);
+            
+            return rowContainer;
         }
 
         private async void OnDeploy(bool withClient)
@@ -464,6 +574,10 @@ namespace Unordinal.Editor
         {
             ShowPage(DeploymentPages.Wait);
             await Task.Delay(50); // Make time for page to change.
+
+            // Check if we have internet access,
+            // Once we have, it will automatically continue.
+            await ShowNoInternetPopupUntilWeHaveInternet();
 
             // Make one call to backend to be sure we dont get any errors
             // (Sometimes it has been the case that, server/client is building for several minutes
@@ -561,7 +675,9 @@ namespace Unordinal.Editor
                 // Client is being built before server, otherwise we have sometimes seens some errors while building client.
                 {
                     // Build client
+                    HandleScenesInBuildSettings();
                     clientOutputPath = clientBundler.Bundle(originalGroup, originalTarget);
+                    ResetScenesInBuildSettings();
                 }
 
                 // Server scope
@@ -570,7 +686,9 @@ namespace Unordinal.Editor
                 //                  hence build client first.)
                 {
                     // Build server
+                    HandleScenesInBuildSettings();
                     serverOutputPath = bundler.Bundle(BundleArchitectures.Intel64);
+                    ResetScenesInBuildSettings();
                 }
             }
             catch (Exception e)
@@ -627,8 +745,9 @@ namespace Unordinal.Editor
         {
             public string ip;
             public string downloadUrl;
+            public List<DeployPort> Ports { get; set; }
         }
-
+        
         private async Task<DeploymentResult> Deploy(CancellationToken token, bool withClient)
         {
             // UI, might have reloaded and stuff which might have cleared the value.
@@ -764,16 +883,17 @@ namespace Unordinal.Editor
                     // We therefore need a way to indicate that it failed.
                     // This bool is therefore used to mark failure and used later.
                     nonAwaitedTaskFailed = true;
-                    failMessage = t.Exception.InnerException.Message;
+                    failMessage = "Deployment step failed: " + t.Exception.InnerException.Message;
                 }
             });
 
 #pragma warning restore CS4014 
             DeployStatusMessage deployStatusMessage = default;
             Func<Task> deploymentFunc = (async () =>
-                deployStatusMessage = await TaskHelpers.RetryWithCondition(
+                deployStatusMessage = await TaskHelpers.RetryWithConditionAndBreakCondition(
                     () => unordinalApi.checkDeployStatus(deploymentGuid),
                     result => !string.IsNullOrEmpty(result.Ip),
+                    result => result.Status == "Error",
                     token,
                     maxRetries: int.MaxValue,
                     delay: 5000));
@@ -793,7 +913,8 @@ namespace Unordinal.Editor
             return new DeploymentResult()
             {
                 ip = deployStatusMessage.Ip,
-                downloadUrl = uploadClientResponse != null ? uploadClientResponse.downloadUrl : string.Empty
+                downloadUrl = uploadClientResponse != null ? uploadClientResponse.downloadUrl : string.Empty,
+                Ports = deployStatusMessage.Ports
             };
         }
 

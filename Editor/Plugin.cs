@@ -62,7 +62,8 @@ namespace Unordinal.Editor
             // This object can then be resolved and used by other registrations.
             container.RegisterInstance("anonymousUrls", new List<string>() {
                 $"{PluginSettings.Auth0BaseUrl}/oauth/device/code",
-                $"{PluginSettings.Auth0BaseUrl}/oauth/token"
+                $"{PluginSettings.Auth0BaseUrl}/oauth/token",
+                $"{PluginSettings.ApiBaseUrl}hosting/{PluginSettings.PluginVersion}/CheckPluginSupport/"
             });
 
             container.RegisterSingleton<HttpMessageHandler, RefreshTokenHttpMessageHandler>(new InjectionConstructor(

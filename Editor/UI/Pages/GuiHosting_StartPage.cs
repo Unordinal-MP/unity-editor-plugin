@@ -206,7 +206,6 @@ namespace Unordinal.Editor
                 // We are on main thread, build server/client.
                 originalGroup = EditorUserBuildSettings.selectedBuildTargetGroup;
                 originalTarget = EditorUserBuildSettings.activeBuildTarget;
-                HandleScenesInBuildSettings();
                 PreDeploy();
             };
 
@@ -340,8 +339,11 @@ namespace Unordinal.Editor
             return container;
         }
 
+        EditorBuildSettingsScene[] originalSceneState;
         private void HandleScenesInBuildSettings()
         {
+            originalSceneState = EditorBuildSettings.scenes;
+
             // Add server scene to build settings.
             SceneAsset serverSceneAsset = _ServerField.value != null ? (SceneAsset)_ServerField.value : null;
             AddSceneToBuildSettings(serverSceneAsset, WhichBuild.Server);
@@ -352,6 +354,11 @@ namespace Unordinal.Editor
                 SceneAsset clientSceneAsset = _ClientField.value != null ? (SceneAsset)_ClientField.value : null;
                 AddSceneToBuildSettings(clientSceneAsset, WhichBuild.Client);
             }
+        }
+
+        private void ResetScenesInBuildSettings()
+        {
+            EditorBuildSettings.scenes = originalSceneState;
         }
 
         private void CheckIfStartSceneIsMissing()

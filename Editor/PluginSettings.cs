@@ -2,6 +2,7 @@
 {
     public static class PluginSettings
     {
+        public const string PluginVersion = "1.2.0";
         public const string ApiBaseUrl = "https://api.unordinal.com/api/v1/";
         public const string Auth0BaseUrl = "https://auth.unordinal.com";
         public const string ClientId = "cO1dolaPZIzxuczexcxFiQW7vN3kGNJv";

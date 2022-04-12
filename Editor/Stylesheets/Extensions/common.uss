@@ -30,6 +30,12 @@ TextInput {
     --color-error-border: rgb(189, 44, 44);
     --color-error-border-hover: rgb(226, 52, 52);
     --color-error-border-active: rgb(151, 35, 35);
+    /*popup*/
+    --popup-border-radius: 10px;
+    /*hyperlink colors*/
+    --hyperlink-blue: rgb(73, 169, 255);
+    --hyperlink-blue-hover: rgb(80, 187, 255); /*1.1*/
+    --hyperlink-blue-active: rgb(66, 152, 225); /*0.9*/
 }
 
 .root-container {
@@ -98,11 +104,9 @@ TextInput {
     color: white;
     border-color: transparent;
 }
-
 .big-button:hover {
     background-color: var(--color-blue-hover);
 }
-
 .big-button:active {
     background-color: var(--color-blue-active);
 }
@@ -130,6 +134,16 @@ TextInput {
     color: var(--color-blue-active);
 }
 
+.red-button{
+    background-color: rgb(200,0,0);
+}
+.red-button:hover{
+    background-color: rgb(255,0,0);
+}
+.red-button:active{
+    background-color: rgb(150,0,0);
+}
+
 .verification-code-label {
     font-size: 35px;
     -unity-font-style: bold;
@@ -137,6 +151,37 @@ TextInput {
     background-color: rgb(25, 25, 25);
     padding: 10px 20px;
     border-radius: var(--radius);
+}
+
+.internal-port-label {
+    font-size: var(--big-label);
+    -unity-font-style: bold;
+    color: rgb(132, 132, 132);
+    background-color: rgb(25, 25, 25);
+    padding: 5px 20px;
+    margin: 5px;
+    border-radius: var(--radius);
+}
+
+.external-port-field {
+    padding-left: 7px;
+    border-top-left-radius: var(--radius);
+    border-bottom-left-radius: var(--radius);
+    background-color: white;
+    font-size: var(--big-label);
+    margin-right: 0px;
+    margin-left: 0px;
+    -unity-text-align: middle-center;
+}
+
+.port-mapping-image {
+    width: 40px;
+    height: 20px;
+    margin-top: 10px;
+}
+
+.marginFive {
+    margin: 5px;
 }
 
 .success-image {
@@ -344,8 +389,8 @@ TextInput {
     padding: 0px;
     border-width: 0px;
     background-color: transparent;
-    color: rgb(79, 178, 255);
-    border-color: rgb(79, 178, 255);
+    color: var(--hyperlink-blue);
+    border-color: var(--hyperlink-blue);
     border-bottom-width: 1px;
     border-bottom-left-radius: 0px;
     border-bottom-right-radius: 0px;
@@ -354,13 +399,13 @@ TextInput {
 }
 
 .hyperlink-button:hover {
-    color: rgb(66, 148, 212);
-    border-color: rgb(66, 148, 212);
+    color: var(--hyperlink-blue-hover);
+    border-color: var(--hyperlink-blue-hover);
 }
 
 .hyperlink-button:active {
-    color: rgb(55, 125, 178);
-    border-color: rgb(55, 125, 178);
+    color: var(--hyperlink-blue-active);
+    border-color: var(--hyperlink-blue-active);
 }
 
 .error-box {
@@ -464,4 +509,53 @@ TextInput {
 #protocol-field {
     /*Empty*/
     /*Used to query for UIElement*/
+}
+
+.popup-background {
+    background-color: rgba(0, 0, 0, 200);
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center; /*Horizontal center*/
+    justify-content: center; /*Vertical center*/
+}
+
+.popup-box {
+    background-color: rgb(11, 21, 24);
+    border-color: var(--color-blue);
+    border-width: 2px;
+    border-radius: var(--popup-border-radius);
+    padding: 40px;
+    align-items: center;
+    max-width: 70%;
+}
+
+.popup-title {
+    color: var(--color-blue);
+}
+
+.popup-text {
+    font-size: 12px;
+    white-space: normal;
+    -unity-text-align: middle-center;
+}
+
+.popup-close-button {
+    border-width: 0px;
+    align-self: flex-end;
+    position: absolute;
+    width: 23px;
+    height: 23px;
+    border-radius: 5px;
+    right: 6px;    /*-4px to make it align with right -> 10 - 4 = 6px*/
+    top: 8px;      /*-2px to make it align iwht top  -> 10 - 2 = 8px*/
+}
+
+.popup-deploy-warning-container {
+    margin-top: 25px;
+    border-radius: 10px;
+    padding: 25px;
+    background-color: rgb(40,40,40);
 }

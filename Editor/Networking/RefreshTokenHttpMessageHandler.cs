@@ -61,7 +61,19 @@ namespace Unordinal.Editor
                 request.Headers.Add("Authorization", $"Bearer {tokenStorage.Token}");
             }
 
-            return await base.SendAsync(request, cancellationToken);
+            var result = new HttpResponseMessage();
+            try
+            {
+                result = await base.SendAsync(request, cancellationToken);
+            }
+            catch
+            {
+                // No connection could be made.
+                // We end up here if the endpoint doesn't exist.
+                result.StatusCode = HttpStatusCode.NotFound;
+            }
+            
+            return result;
         }
 
         private bool RequiresToken(HttpRequestMessage request)

@@ -1,4 +1,7 @@
-﻿using UnityEngine.UIElements;
+﻿using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UIElements;
+using Unordinal.Editor.External;
 using Unordinal.Editor.UI;
 
 namespace Unordinal.Editor
@@ -8,11 +11,15 @@ namespace Unordinal.Editor
         private int copyResultButtonWidth = 50;
         private int bigButtonWidth = 280;
         private TextField ipResultMessage;
+        
         private TextField PlayWithFriendsResultMessage;
         private VisualElement playWithFriendsContainer;
+        
+        private VisualElement deployPortContainer;
 
         private string ipResult = "000.000.000.0";
         private string playWithFriendsResult = "https:Azure";
+
         public string IpResult
         {
             get { return ipResult; }
@@ -22,6 +29,21 @@ namespace Unordinal.Editor
                 {
                     ipResult = value;
                     ipResultMessage.value = value;
+                }
+            }
+        }
+
+        public List<UnordinalApi.DeployPort> deployPort = new List<UnordinalApi.DeployPort>();
+
+        public List<UnordinalApi.DeployPort> DeployPort
+        {
+            get { return deployPort; }
+            set
+            {
+                if (deployPort != value)
+                {
+                    deployPort = value;
+                    BuildPortContainer();
                 }
             }
         }
@@ -87,13 +109,13 @@ namespace Unordinal.Editor
             ipResultMessage.isReadOnly = true;
             ipResultMessage.style.width = bigButtonWidth - copyResultButtonWidth;
             ipResultMessage.value = ipResult;
-
+            
             playWithFriendsContainer = new VisualElement();
             HandlePlayWithFriendsResultVisibility(playWithFriendsToggleButton.value);
 
             var playWithFriendsResultContainer = new VisualElement();
             playWithFriendsResultContainer.style.flexDirection = FlexDirection.Row;
-
+            
             PlayWithFriendsResultMessage = new TextField();
             PlayWithFriendsResultMessage.AddToClassList("playWithFriends-big-result-field");
             PlayWithFriendsResultMessage.name = "playWithFriends-BigResultInputField";
@@ -122,15 +144,23 @@ namespace Unordinal.Editor
             {
                 parent.Add(infoLabel);
                 parent.Add(resultContainer);
+                // parent.Add(portLabel);
+
                 {
                     // Result
                     resultContainer.Add(ipResultMessage);
+                    // resultContainer.Add(tf);
                     // Copy button
                     resultContainer.Add(copyButton);
                     {
                         copyButton.Add(buttonLabel);
                     }
                 }
+                
+                deployPortContainer = new VisualElement();
+                parent.Add(deployPortContainer);
+                BuildPortContainer();
+                
                 parent.Add(playWithFriendsContainer);
                 {
                     // Title

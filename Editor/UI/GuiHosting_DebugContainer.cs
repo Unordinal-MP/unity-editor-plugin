@@ -32,10 +32,11 @@ namespace Unordinal.Editor
             var deployingButton = new Button();
             var errorButton = new Button() { text = "e" };
             var finishedButton = new Button();
+            var popupButton = new Button() { text = "P" };
             var clearPluginButton = new Button();
             clearPluginButton.style.backgroundColor = Color.red;
             var googleAnalyticsTestButton = new Button() { text = "GA4" };
-
+            
             signInButton.tooltip = "Sign in page";
             signInActiveButton.tooltip = "Sign in active page";
             signInSuccessButton.tooltip = "Sign in successful page";
@@ -46,6 +47,7 @@ namespace Unordinal.Editor
             deployingButton.tooltip = "Deployment in progress page";
             errorButton.tooltip = "Deployment error page";
             finishedButton.tooltip = "Deployment finished page";
+            popupButton.tooltip = "Show popup window";
             clearPluginButton.tooltip = "Reset stored values in the plugin";
             googleAnalyticsTestButton.tooltip = "Send data to google analytics";
 
@@ -89,6 +91,10 @@ namespace Unordinal.Editor
             {
                 ShowPage(DeploymentPages.Finished);
             });
+            popupButton.clicked += (() =>
+            {
+                ShowPopupForVersionResult(new External.UnordinalApi.VersionResponse() { MustUpdate = true });
+            });
             clearPluginButton.clicked += (() =>
             {
                 IpResult = "bla";
@@ -110,6 +116,7 @@ namespace Unordinal.Editor
             parent.Add(deployingButton);
             parent.Add(errorButton);
             parent.Add(finishedButton);
+            parent.Add(popupButton);
             parent.Add(clearPluginButton);
             parent.Add(googleAnalyticsTestButton);
         }

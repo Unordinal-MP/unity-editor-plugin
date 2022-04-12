@@ -17,6 +17,27 @@ namespace Unordinal.Editor.Utils
                 return result;
             }, cancellationToken, maxRetries, delay);
         }
+        
+        public static async Task<T> RetryWithConditionAndBreakCondition<T>(Func<Task<T>> action, Func<T, bool> condition, Func<T, bool> breakCondition, CancellationToken cancellationToken, int maxRetries = 100, int delay = 500)
+        {
+            var retryResult =  await Retry<T>(async () => {
+                var result = await action().ConfigureAwait(false);
+                if (breakCondition(result))
+                {
+                    return result;
+                }
+                if (!condition(result)) {
+                    throw new ConditionNotSatisfiedException($"Condition {condition} not satisfied");
+                }
+                return result;
+            }, cancellationToken, maxRetries, delay);
+
+            if (breakCondition(retryResult))
+            {
+                throw new BreakConditionSatisfiedException($"Condition {breakCondition} was satisfied");
+            }
+            return retryResult;
+        }
 
         public static async Task<T> RetryWithCondition<T>(Func<Task<T>> action, Func<T, bool> condition, int maxRetries = 100, int delay = 500)
         {
@@ -71,6 +92,13 @@ namespace Unordinal.Editor.Utils
     public class ConditionNotSatisfiedException : Exception
     {
         public ConditionNotSatisfiedException(string message) : base(message)
+        {
+        }
+    }
+    
+    public class BreakConditionSatisfiedException : Exception
+    {
+        public BreakConditionSatisfiedException(string message) : base(message)
         {
         }
     }

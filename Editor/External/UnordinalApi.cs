@@ -25,6 +25,13 @@ namespace Unordinal.Editor.External
             this.logger = logger;
         }
 
+        public async Task<VersionResponse> checkPluginSupport(string version, CancellationToken token = default)
+        {
+            var response = await callUnordinalApi(HttpMethod.Get, $"hosting/{version}/CheckPluginSupport/", token: token);
+            var versionData = fromJson<VersionResponse>(response);
+            return versionData;
+        }
+
         public async Task<Guid> addProject(string projectName, CancellationToken token = default)
         {
             var result = await callUnordinalApi(HttpMethod.Post,
@@ -56,7 +63,7 @@ namespace Unordinal.Editor.External
         public async Task<GameClientUrlsResponse> getGameClientUrls(Guid guid, CancellationToken token)
         {
             var json = await callUnordinalApi(HttpMethod.Post, $"hosting/{guid}/gameClientUrls", token: token);
-            var result = toJson<GameClientUrlsResponse>(json);
+            var result = fromJson<GameClientUrlsResponse>(json);
             return result;
         }
 
@@ -68,7 +75,7 @@ namespace Unordinal.Editor.External
         public async Task<StatusMessage> checkBuildStatus(Guid guid)
         {
             var responseContent = await callUnordinalApi(HttpMethod.Get, $"hosting/{guid}/status");
-            return toJson<StatusMessage>(responseContent);
+            return fromJson<StatusMessage>(responseContent);
         }
 
         public async Task deploy(Guid guid, Dictionary<string, long> regions, CancellationToken token)
@@ -79,7 +86,7 @@ namespace Unordinal.Editor.External
         public async Task<DeployStatusMessage> checkDeployStatus(Guid guid)
         {
             var responseContent = await callUnordinalApi(HttpMethod.Get, $"hosting/{guid}/deployStatus");
-            return toJson<DeployStatusMessage>(responseContent);
+            return fromJson<DeployStatusMessage>(responseContent);
         }
 
         private async Task<string> callUnordinalApi(HttpMethod method, string path, object body = null, CancellationToken token = default)
@@ -107,6 +114,11 @@ namespace Unordinal.Editor.External
                 logger.LogDebug("Wrong configuration");
                 throw new Exception("Something went wrong, check FAQ for potential fixes.");
             }
+            else if(response.StatusCode == HttpStatusCode.NotFound)
+            {
+                logger.LogDebug("API endpoint not found");
+                throw new HttpRequestException("404 - Not found");
+            }
             else
             {
                 logger.LogDebug(response.ToString());
@@ -125,9 +137,17 @@ namespace Unordinal.Editor.External
             return request;
         }
 
-        private static T toJson<T>(string responseContent)
+        private static T fromJson<T>(string responseContent)
         {
             return JsonSerializer.Deserialize<T>(responseContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        }
+
+        public struct VersionResponse
+        {
+            public bool ApiCallFailed { get; set; }
+            public bool MustUpdate { get; set; }
+            public bool SuggestUpdate { get; set; }
+            public string Message { get; set; }
         }
 
         public struct StartProcessBody
@@ -144,10 +164,12 @@ namespace Unordinal.Editor.External
             public string ErrorMessage { get; set; }
         }
 
+        [Serializable]
         public class DeployPort
         {
             public string Protocol { get; set; }
-            public int PortProperty { get; set; }
+            public int Number { get; set; }
+            public int ExternalNumber { get; set; }
 
         }
 

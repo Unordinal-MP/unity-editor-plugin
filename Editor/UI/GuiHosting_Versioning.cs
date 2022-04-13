@@ -14,7 +14,7 @@ namespace Unordinal.Editor
             VersionResponse result;
             try
             {
-                result = await unordinalApi.checkPluginSupport(PluginSettings.PluginVersion);
+                result = await unordinalApi.checkPluginSupport(PluginSettings.GetPluginVersion());
             }
             catch(Exception)
             {

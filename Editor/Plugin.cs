@@ -63,7 +63,7 @@ namespace Unordinal.Editor
             container.RegisterInstance("anonymousUrls", new List<string>() {
                 $"{PluginSettings.Auth0BaseUrl}/oauth/device/code",
                 $"{PluginSettings.Auth0BaseUrl}/oauth/token",
-                $"{PluginSettings.ApiBaseUrl}hosting/{PluginSettings.PluginVersion}/CheckPluginSupport/"
+                $"{PluginSettings.ApiBaseUrl}hosting/{PluginSettings.GetPluginVersion()}/CheckPluginSupport/"
             });
 
             container.RegisterSingleton<HttpMessageHandler, RefreshTokenHttpMessageHandler>(new InjectionConstructor(

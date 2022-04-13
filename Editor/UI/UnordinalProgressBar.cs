@@ -3,7 +3,7 @@ using UnityEngine.UIElements;
 
 namespace Unordinal.Editor.UI
 {
-    public class ProgressBar: VisualElement
+    public class UnordinalProgressBar: VisualElement
     {
         public float Progress
         {
@@ -34,7 +34,7 @@ namespace Unordinal.Editor.UI
         private Box progressBar;
         private Label bigProgressBarLabel;
 
-        public ProgressBar()
+        public UnordinalProgressBar()
         {
             Render();
         }

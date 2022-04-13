@@ -28,19 +28,9 @@ namespace Unordinal.Editor
             closeButton.AddToClassList("popup-close-button");
             closeButton.clicked += () => ClosePopupInPlugin();
 
-            // The container holding the label with the +
-            // This container gets rotated 45 degrees to from an X (looks better than a x-character).
-            var crossContainer = new VisualElement();
-            crossContainer.transform.position += new Vector3(11, -1.0f, 0.0f);
-            var crossConteinerWidth = crossContainer.style.width;
-            crossContainer.transform.rotation = Quaternion.Euler(0, 0, 45);
-
-            // The + will be rotated by the parent container and form the close [X] on the button.
-            var crossSign = new Label("+");
-            crossSign.style.unityFontStyleAndWeight = FontStyle.Bold;
-            crossSign.style.fontSize = 25;
-            crossSign.style.alignSelf = Align.Center;
-            crossSign.style.justifyContent = Justify.Center;
+            var crossImage = Assets.Images["cross"];
+            crossImage.style.width = 10;
+            crossImage.style.height = 10;
 
             // Layout
             {
@@ -50,10 +40,7 @@ namespace Unordinal.Editor
                     {
                         popupBox.Add(closeButton);
                         {
-                            closeButton.Add(crossContainer);
-                            {
-                                crossContainer.Add(crossSign);
-                            }
+                            closeButton.Add(crossImage);
                         }
                     }
                 }

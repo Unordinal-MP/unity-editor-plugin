@@ -17,7 +17,7 @@ namespace Unordinal.Editor
             set { progressBar.IsError = value; }
         }
 
-        private ProgressBar progressBar;
+        private UnordinalProgressBar progressBar;
 
         public VisualElement CreateDeployingPage() 
         {
@@ -27,7 +27,7 @@ namespace Unordinal.Editor
                 "Sit back and relax, this might take a couple of minutes depending on your server size."
                 );
 
-            progressBar = new ProgressBar();
+            progressBar = new UnordinalProgressBar();
             progressBar.BigMessage = "Vacuuming X-Wings";
 
             var cancelBtn = Controls.ButtonWithClass("Cancel deploying", false, "only-text-button");

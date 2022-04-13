@@ -1,6 +1,7 @@
 ﻿#if DEBUG
 
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -8,19 +9,31 @@ namespace Unordinal.Editor
 {
     public partial class GuiHosting
     {
+        VisualElement OptionsMenu;
+
         private VisualElement CreateDebugContainer()
         {
             var debugContainer = new VisualElement();
-            debugContainer.style.flexDirection = FlexDirection.Row;
-            debugContainer.style.marginBottom = 0;
-            AddDebugButtons(debugContainer);
+            
+            var firstRow = new VisualElement();
+            firstRow.style.flexDirection = FlexDirection.Row;
+            firstRow.style.marginBottom = 0;
+
+            OptionsMenu = new VisualElement();
+            firstRow.style.flexDirection = FlexDirection.Row;
+            firstRow.style.marginBottom = 0;
+
+            AddDebugButtons(firstRow);
+
+            debugContainer.Add(firstRow);
+            debugContainer.Add(OptionsMenu);
 
             return debugContainer;
         }
 
         public Action AnalyticsAction;
 
-        private void AddDebugButtons(VisualElement parent)
+        private void AddDebugButtons(VisualElement firstRow)
         {
             var signInButton = new Button();
             var signInActiveButton = new Button();
@@ -36,7 +49,7 @@ namespace Unordinal.Editor
             var clearPluginButton = new Button();
             clearPluginButton.style.backgroundColor = Color.red;
             var googleAnalyticsTestButton = new Button() { text = "GA4" };
-            
+
             signInButton.tooltip = "Sign in page";
             signInActiveButton.tooltip = "Sign in active page";
             signInSuccessButton.tooltip = "Sign in successful page";
@@ -90,6 +103,8 @@ namespace Unordinal.Editor
             finishedButton.clicked += (() =>
             {
                 ShowPage(DeploymentPages.Finished);
+
+                AddResultPageOptions();
             });
             popupButton.clicked += (() =>
             {
@@ -106,19 +121,60 @@ namespace Unordinal.Editor
                 AnalyticsAction?.Invoke();
             });
 
-            parent.Add(signInButton);
-            parent.Add(signInActiveButton);
-            parent.Add(signInSuccessButton);
-            parent.Add(linuxBuildSupportButton);
-            parent.Add(unityRestartRequiredButton);
-            parent.Add(startButton);
-            parent.Add(waitButton);
-            parent.Add(deployingButton);
-            parent.Add(errorButton);
-            parent.Add(finishedButton);
-            parent.Add(popupButton);
-            parent.Add(clearPluginButton);
-            parent.Add(googleAnalyticsTestButton);
+            firstRow.Add(signInButton);
+            firstRow.Add(signInActiveButton);
+            firstRow.Add(signInSuccessButton);
+            firstRow.Add(linuxBuildSupportButton);
+            firstRow.Add(unityRestartRequiredButton);
+            firstRow.Add(startButton);
+            firstRow.Add(waitButton);
+            firstRow.Add(deployingButton);
+            firstRow.Add(errorButton);
+            firstRow.Add(finishedButton);
+            firstRow.Add(popupButton);
+            firstRow.Add(clearPluginButton);
+            firstRow.Add(googleAnalyticsTestButton);
+        }
+
+        private void AddResultPageOptions()
+        {
+            // Show the extra buttons for this 
+
+            var setRandomIpResult = new Button() { text = "Set random ip" };
+            setRandomIpResult.clicked += () =>
+            {
+                var rand = new System.Random();
+                IpResult = $"{rand.Next(10, 999)}.{rand.Next(1, 99)}.{rand.Next(1, 99)}.{rand.Next(10, 99)}";
+            };
+
+            var addPortMappingButton = new Button() { text = "Add port mapping" };
+            addPortMappingButton.clicked += () =>
+            {
+                var newDeployPorts = new List<External.UnordinalApi.DeployPort>();
+                // add already existing ports
+                foreach (var port in DeployPort)
+                {
+                    newDeployPorts.Add(port);
+                }
+                var rand = new System.Random();
+                newDeployPorts.Add(new External.UnordinalApi.DeployPort()
+                {
+                    ExternalNumber = rand.Next(1, 9999),
+                    Number = rand.Next(1, 9999),
+                    Protocol = "udp"
+                });
+                DeployPort = newDeployPorts;
+            };
+
+            var removeAllDeployPorts = new Button() { text = "Remove all deploy ports" };
+            removeAllDeployPorts.clicked += () =>
+            {
+                DeployPort = new List<External.UnordinalApi.DeployPort>();
+            };
+
+            OptionsMenu.Add(setRandomIpResult);
+            OptionsMenu.Add(addPortMappingButton);
+            OptionsMenu.Add(removeAllDeployPorts);
         }
     }
 }

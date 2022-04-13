@@ -160,6 +160,7 @@ TextInput {
     background-color: rgb(25, 25, 25);
     padding: 5px 20px;
     margin: 5px;
+    min-width: 95px;
     border-radius: var(--radius);
 }
 
@@ -549,6 +550,8 @@ TextInput {
     width: 23px;
     height: 23px;
     border-radius: 5px;
+    align-content: center;
+    justify-content: center;
     right: 6px;    /*-4px to make it align with right -> 10 - 4 = 6px*/
     top: 8px;      /*-2px to make it align iwht top  -> 10 - 2 = 8px*/
 }

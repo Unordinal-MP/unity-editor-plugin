@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UIElements;
 using Unordinal.Editor.External;
@@ -123,7 +124,6 @@ namespace Unordinal.Editor
             PlayWithFriendsResultMessage.style.width = bigButtonWidth - copyResultButtonWidth;
             PlayWithFriendsResultMessage.value = playWithFriendsResult;
 
-
             var copyButton = new Button();
             copyButton.clicked += () => UnityEngine.GUIUtility.systemCopyBuffer = ipResultMessage.value;
             copyButton.AddToClassList("copy-button");
@@ -165,7 +165,6 @@ namespace Unordinal.Editor
                 {
                     // Title
                     playWithFriendsContainer.Add(playWithFriendsInfoLabel);
-                    //parent.Add(playWithFriendsInfoLabel);
                     playWithFriendsContainer.Add(playWithFriendsResultContainer);
                     {
                         // Result
@@ -194,6 +193,80 @@ namespace Unordinal.Editor
                 playWithFriendsContainer.style.height = 0;
                 playWithFriendsContainer.style.width = 0;
             }
+        }
+
+        private void BuildPortContainer()
+        {
+            deployPortContainer.Clear();
+
+            var mappedPortsCount = DeployPort.FindAll(p => !p.Number.Equals(p.ExternalNumber)).Count();
+            if (mappedPortsCount == 0)
+            {
+                return;
+            }
+
+            var infoLabel = new Label("Port Mapping");
+            infoLabel.style.marginTop = 20;
+            infoLabel.style.marginBottom = 10;
+
+            // Layout
+            {
+                deployPortContainer.Add(infoLabel);
+                foreach (var port in DeployPort)
+                {
+                    var row = CreateDeployedPortRow(port.Protocol.ToString(), port.Number, port.ExternalNumber);
+                    deployPortContainer.Add(row);
+                }
+            }
+        }
+
+        private static VisualElement CreateDeployedPortRow(string protocol, int internalNumber, int externalNumber)
+        {
+            VisualElement rowContainer = new VisualElement();
+            rowContainer.style.flexDirection = FlexDirection.Row;
+            var portInputInternal = new Label(internalNumber.ToString());
+            portInputInternal.AddToClassList("internal-port-label");
+
+            var portMappingImage = Assets.Images["PortMapping"];
+            portMappingImage.AddToClassList("port-mapping-image");
+
+            int copyResultButtonWidth = 50;
+            int bigButtonWidth = 130;
+
+            var resultContainer = new VisualElement();
+            resultContainer.AddToClassList("marginFive");
+            resultContainer.style.flexDirection = FlexDirection.Row;
+
+            var externalPortField = new TextField();
+            externalPortField.AddToClassList("external-port-field");
+            externalPortField.name = "BigResultInputField";
+            externalPortField.isReadOnly = true;
+            externalPortField.style.width = bigButtonWidth - copyResultButtonWidth;
+            externalPortField.value = externalNumber.ToString();
+
+            var copyButton = new Button();
+            copyButton.clicked += () => UnityEngine.GUIUtility.systemCopyBuffer = externalPortField.value;
+            copyButton.AddToClassList("copy-button");
+            copyButton.style.width = copyResultButtonWidth;
+
+            var buttonLabel = new Label("Copy");
+            buttonLabel.AddToClassList("button-label-centered");
+
+            // Layout
+            {
+                rowContainer.Add(portInputInternal);
+                rowContainer.Add(portMappingImage);
+                rowContainer.Add(resultContainer);
+                {
+                    resultContainer.Add(externalPortField);
+                    resultContainer.Add(copyButton);
+                    {
+                        copyButton.Add(buttonLabel);
+                    }
+                }
+            }
+
+            return rowContainer;
         }
     }
 }

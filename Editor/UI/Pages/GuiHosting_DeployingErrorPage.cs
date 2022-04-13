@@ -10,7 +10,7 @@ namespace Unordinal.Editor
         private TextField longErrorMessage;
 
         private int textWidthPercent = 70;
-        private ProgressBar errorProgressBar;
+        private UnordinalProgressBar errorProgressBar;
         private ScrollView detailedErrorScrollView;
 
         public string ShortErrorMessage
@@ -46,7 +46,7 @@ namespace Unordinal.Editor
                 "Something went wrong, see below for details."
                 );
 
-            errorProgressBar = new ProgressBar();
+            errorProgressBar = new UnordinalProgressBar();
             errorProgressBar.IsError = true;
             errorProgressBar.BigMessage = "Error occurred";
 

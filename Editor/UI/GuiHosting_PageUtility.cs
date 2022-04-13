@@ -68,6 +68,11 @@ namespace Unordinal.Editor
             PageChanged?.Invoke(ActivePage, pageIdentifier);
             PreviousPage = ActivePage;
             ActivePage = pageIdentifier;
+
+            if(addDebugButtons && OptionsMenu != null)
+            {
+                OptionsMenu.Clear();
+            }
         }
 
         #endregion
